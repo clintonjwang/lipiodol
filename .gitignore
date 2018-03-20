@@ -3,6 +3,7 @@
 *.pdf
 *.doc*
 *private*
+data/
 
 # Images
 *.npy
