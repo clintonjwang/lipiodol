@@ -12,6 +12,7 @@ import keras.layers as layers
 from keras.models import Model
 from keras.callbacks import EarlyStopping
 from keras.optimizers import Adam
+from keras.utils import np_utils
 
 import argparse
 import copy
@@ -24,6 +25,7 @@ from math import log, ceil
 import numpy as np
 import operator
 import os
+from os.path import *
 import pandas as pd
 import random
 from scipy.misc import imsave
@@ -31,18 +33,23 @@ from skimage.transform import rescale
 from niftiutils.metrics import dice_coefficient_loss, get_label_dice_coefficient_function, dice_coefficient
 import time
 
-def build_ct_unet(optimizer='adam', depth=3, base_f=16, nb_segs=2, lr=.001):
+def build_unet(optimizer='adam', depth=4, base_f=8, nb_segs=2, dropout=.1, lr=.001):
 	"""Main class for setting up a CNN. Returns the compiled model."""
+	import importlib
+	importlib.reload(cnnc)
+	importlib.reload(config)
 
 	C = config.Config()
 	levels = []
 
 	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2]))
-	current_layer = Reshape((1, C.dims[0], C.dims[1], C.dims[2]))(img)
+	current_layer = Reshape((C.dims[0], C.dims[1], C.dims[2], 1))(img)
+	#current_layer = Reshape((1, C.dims[0], C.dims[1], C.dims[2]))(img)
 	
 	for layer_depth in range(depth):
-		layer1 = cnnc.conv_block(current_layer, base_f*2**layer_depth)
-		layer2 = cnnc.conv_block(layer1, base_f*2**(layer_depth+1))
+		layer1 = cnnc.conv_block(current_layer, base_f*2**layer_depth, strides=1)
+		dropl = layers.Dropout(dropout)(layer1)
+		layer2 = cnnc.conv_block(dropl, base_f*2**(layer_depth+1))
 
 		if layer_depth < depth - 1:
 			current_layer = layers.MaxPooling3D((2,2,2))(layer2)
@@ -54,28 +61,31 @@ def build_ct_unet(optimizer='adam', depth=3, base_f=16, nb_segs=2, lr=.001):
 	for layer_depth in range(depth-2, -1, -1):
 		up_convolution = cnnc.up_conv_block(pool_size=(2,2,2), deconvolution=False,
 											n_filters=current_layer._keras_shape[1])(current_layer)
-		concat = layers.Concatenate(axis=1)([up_convolution, levels[layer_depth][1]])
-		current_layer = cnnc.conv_block(concat, levels[layer_depth][1]._keras_shape[1])
-		current_layer = cnnc.conv_block(current_layer, levels[layer_depth][1]._keras_shape[1])
+		concat = layers.Concatenate(axis=-1)([up_convolution, levels[layer_depth][1]])
+		current_layer = cnnc.conv_block(concat, levels[layer_depth][1]._keras_shape[-1]//2)
+		current_layer = layers.Dropout(dropout)(current_layer)
+		current_layer = cnnc.conv_block(current_layer, levels[layer_depth][1]._keras_shape[-1]//2)
 
-	output = layers.Conv3D(nb_segs, (1,1,1))(current_layer)
-	model = Model(img, output)
+	x = layers.Conv3D(nb_segs, (1,1,1), activation='softmax')(current_layer)
+	#x = layers.Softmax(-1)(x)
+	#x = layers.Permute((4,1,2,3))(x)
+	model = Model(img, x)
 
-	model.compile(optimizer=Adam(lr=lr), loss=dice_coefficient_loss, metrics=['accuracy'])
+	model.compile(optimizer=Adam(lr=lr), loss='binary_crossentropy', metrics=['accuracy'])
 	return model
 
 def compute_level_output_shape(n_filters, depth, pool_size, image_shape):
-    """
-    Each level has a particular output shape based on the number of filters used in that level and the depth or number 
-    of max pooling operations that have been done on the data at that point.
-    :param image_shape: shape of the 3d image.
-    :param pool_size: the pool_size parameter used in the max pooling operation.
-    :param n_filters: Number of filters used by the last node in a given level.
-    :param depth: The number of levels down in the U-shaped model a given node is.
-    :return: 5D vector of the shape of the output node 
-    """
-    output_image_shape = np.asarray(np.divide(image_shape, np.power(pool_size, depth)), dtype=np.int32).tolist()
-    return tuple([None, n_filters] + output_image_shape)
+	"""
+	Each level has a particular output shape based on the number of filters used in that level and the depth or number 
+	of max pooling operations that have been done on the data at that point.
+	:param image_shape: shape of the 3d image.
+	:param pool_size: the pool_size parameter used in the max pooling operation.
+	:param n_filters: Number of filters used by the last node in a given level.
+	:param depth: The number of levels down in the U-shaped model a given node is.
+	:return: 5D vector of the shape of the output node 
+	"""
+	output_image_shape = np.asarray(np.divide(image_shape, np.power(pool_size, depth)), dtype=np.int32).tolist()
+	return tuple([None, n_filters] + output_image_shape)
 
 def get_cnn_data(n=4):
 	"""Subroutine to run CNN
@@ -96,7 +106,7 @@ def get_cnn_data(n=4):
 
 	X_test = np.array(orig_data_dict[0][order[train_samples:]])
 	Y_test = np.array(orig_data_dict[1][order[train_samples:]])
-	Z_test = np.array(orig_data_dict[-1][order[train_samples:]])
+	Z_test = test_ids = np.array(orig_data_dict[-1][order[train_samples:]])
 	
 	X_train_orig = np.array(orig_data_dict[0][order[:train_samples]])
 	Y_train_orig = np.array(orig_data_dict[1][order[:train_samples]])
@@ -113,41 +123,53 @@ def get_cnn_data(n=4):
 ### Training Submodules
 ####################################
 
-def _train_generator_func(test_ids, n=1):
-	"""n is the number of samples from each class, n_art is the number of artificial samples"""
-
+def train_gen_mri(n=1):
 	C = config.Config()
 
-	voi_df = drm.get_voi_dfs()[0]
+	lesion_ids = [z[:2] for z in os.listdir(C.full_img_dir) if z.endswith("_mri.npy")]
+	while True:
+		lesion_id = random.choice(lesion_ids)
+		x = np.load(join(C.full_img_dir, lesion_id+"_mri.npy"))
+		y = np.load(join(C.full_img_dir, lesion_id+"_mr_liver_mask.npy"))
 
-	#avg_X2 = {}
-	#for cls in orig_data_dict:
-	#	avg_X2[cls] = np.mean(orig_data_dict[cls][1], axis=0)
-	patient_info_df = pd.read_csv(C.patient_info_path)
-	patient_info_df["AccNum"] = patient_info_df["AccNum"].astype(str)
+		angle = random.uniform(-20,20)*math.pi/180
+		x = tr.rotate(x, angle)
+		y = tr.rotate(y.astype(float), angle)
 
-	num_classes = len(C.classes_to_include)
-	x = np.empty((n, C.dims[0], C.dims[1], C.dims[2]))
-	y = np.zeros((n, 2, C.dims[0], C.dims[1], C.dims[2]))
+		crops = list(map(int,[random.uniform(0,.1) * x.shape[0], random.uniform(.9,1) * x.shape[0]] + \
+						[random.uniform(0,.1) * x.shape[1], random.uniform(.9,1) * x.shape[1]] + \
+						[random.uniform(0,.1) * x.shape[2], random.uniform(.9,1) * x.shape[2]]))
+		x = x[crops[0]:crops[1], crops[2]:crops[3], crops[4]:crops[5]]
+		y = y[crops[0]:crops[1], crops[2]:crops[3], crops[4]:crops[5]]
 
-	train_cnt = 0
+		x,_ = tr.rescale_img(x, C.dims)
+		y,_ = tr.rescale_img(y, C.dims)
+		y = np_utils.to_categorical(y, 2)
+		yield np.expand_dims(x,0), np.expand_dims(y,0)
 
-	img_fns = os.listdir(C.aug_dir+cls)
-	while n > 0:
-		img_fn = random.choice(img_fns)
-		lesion_id = img_fn[:img_fn.rfind('_')]
-		if lesion_id not in test_ids[cls]:
-			x[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
-			if C.hard_scale:
-				x1[train_cnt] = vm.scale_intensity(x1[train_cnt], 1, max_int=2, keep_min=False)
-			
-			y[train_cnt] = get_mask(x[train_cnt], ??)
-			
-			train_cnt += 1
-			if train_cnt % (n+n_art) == 0:
-				break
+def train_gen_ct(n=1):
+	C = config.Config()
 
-		yield np.array(x), np.array(y)
+	lesion_ids = [z[:2] for z in os.listdir(C.full_img_dir) if z.endswith("_ct.npy")]
+	while True:
+		lesion_id = random.choice(lesion_ids)
+		x = np.load(join(C.full_img_dir, lesion_id+"_ct.npy"))
+		y = np.load(join(C.full_img_dir, lesion_id+"_mask.npy"))
+
+		angle = random.uniform(-10,10)*math.pi/180
+		x = tr.rotate(x, angle)
+		y = tr.rotate(y.astype(float), angle)
+
+		crops = list(map(int,[random.uniform(0,.1) * x.shape[0], random.uniform(.9,1) * x.shape[0]] + \
+						[random.uniform(0,.1) * x.shape[1], random.uniform(.9,1) * x.shape[1]] + \
+						[random.uniform(0,.1) * x.shape[2], random.uniform(.9,1) * x.shape[2]]))
+		x = x[crops[0]:crops[1], crops[2]:crops[3], crops[4]:crops[5]]
+		y = y[crops[0]:crops[1], crops[2]:crops[3], crops[4]:crops[5]]
+
+		x,_ = tr.rescale_img(x, C.dims)
+		y,_ = tr.rescale_img(y, C.dims)
+		y = np_utils.to_categorical(y, 2)
+		yield np.expand_dims(x,0), np.expand_dims(y,0)
 
 def _separate_phases(X, non_imaging_inputs=False):
 	"""Assumes X[0] contains imaging and X[1] contains dimension data.

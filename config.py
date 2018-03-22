@@ -51,13 +51,13 @@ class Config:
 		self.img_dirs = ["Z:\\LIRADS\\DICOMs\\" + fn for fn in self.cls_names]
 		self.simplify_map = {'hcc': 0, 'cyst': 1, 'hemangioma': 1, 'fnh': 1, 'cholangio': 2, 'colorectal': 2}
 
-		self.full_img_dir = "Z:\\LIRADS\\full_imgs"
+		self.full_img_dir = "D:\\Lipiodol\\npy_data"
 		self.output_img_dir = "Z:\\LIRADS\\OUTPUT\\1-14"
 		self.crops_dir = "E:\\imgs\\unscaled_crops_full\\"
 		self.aug_dir = "E:\\imgs\\aug_imgs_2412_full\\"
 		self.orig_dir = "E:\\imgs\\orig_imgs_2412_full\\"
 		self.artif_dir = "E:\\imgs\\artif_imgs_2412\\"
-		self.model_dir = "E:\\models\\"
+		self.model_dir = "D:\\Lipiodol\\models"
 
 		# Augmentation parameters
 		self.intensity_scaling = [.05,.05]
