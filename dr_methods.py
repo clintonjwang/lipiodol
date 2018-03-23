@@ -1,25 +1,5 @@
 """
-Contains methods for converting dcm files to npy files cropped at the regions surrounding
-Converts a dcm file to a numpy array.
-Accepts either a single nifti file or a folder of niftis as the input argument.
-
-Assumes that all the DICOM images for a study are stored in subfolders...
-The study subfolder should be stored in a subfolder named after the class to which it belongs.
-If a single study has multiple classes, it needs to be copied to each class's subfolder.
-
-base_directory/cyst/E123456789/ax_haste/
-> 0.dcm
-> 1.dcm
-> ...
-> metadata.xml
-
-Usage:
-	python dr_methods.py
-	python dr_methods.py --cls hcc
-	python dr_methods.py -v -c cyst
-	python dr_methods.py -ovc hemangioma
-
-Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/voi-classifier`
+Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/lipiodol`
 """
 
 import argparse

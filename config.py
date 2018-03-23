@@ -1,21 +1,9 @@
 """
-Config file
-
-Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/voi-classifier`
+Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/lipiodol`
 """
-
-#Run Numbers:
-# 1 - classic
-# 2 - classic but difficult
-# 3 - atypical, maybe exclude
-# 4 - atypical, exclude
-# 5 - temporarily excluded
-# 6 - inconsistent slices, missing phase, bad imaging quality, etc. see notes
 
 class Config:
 	def __init__(self):
-		self.run_num = 2
-		self.test_run_num = 2
 		self.dims = [128,128,64]
 		self.nb_channels = 3
 		self.aug_factor = 100

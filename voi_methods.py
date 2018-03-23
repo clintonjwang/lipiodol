@@ -1,14 +1,5 @@
 """
-Converts a nifti file to a numpy array.
-Accepts either a single nifti file or a folder of niftis as the input argument.
-
-Usage:
-	python voi_methods.py
-	python voi_methods.py --cls hcc
-	python voi_methods.py -v -c cyst
-	python voi_methods.py -ovc hemangioma
-
-Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/voi-classifier`
+Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/lipiodol`
 """
 
 import argparse
