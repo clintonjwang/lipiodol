@@ -126,11 +126,11 @@ def get_cnn_data(n=4):
 def train_gen_mri(n=1):
 	C = config.Config()
 
-	lesion_ids = [z[:2] for z in os.listdir(C.full_img_dir) if z.endswith("_mri.npy")]
+	lesion_ids = [z[:z.find("_mri")] for z in os.listdir(C.full_img_dir) if z.endswith("_mri_art.npy")]
 	while True:
 		lesion_id = random.choice(lesion_ids)
-		x = np.load(join(C.full_img_dir, lesion_id+"_mri.npy"))
-		y = np.load(join(C.full_img_dir, lesion_id+"_mr_liver_mask.npy"))
+		x = np.load(join(C.full_img_dir, lesion_id+"_mri_art.npy"))
+		y = np.load(join(C.full_img_dir, lesion_id+"_mr_bl_liver_mask.npy"))
 
 		angle = random.uniform(-20,20)*math.pi/180
 		x = tr.rotate(x, angle)
