@@ -20,7 +20,6 @@ def seg_lipiodol(img, save_folder, ct_dims):
     masks.save_mask(mid_mask, join(save_folder, "mid_lipiodol"), ct_dims, save_mesh=True)
     masks.save_mask(high_mask, join(save_folder, "high_lipiodol"), ct_dims, save_mesh=True)
 
-
 def seg_target_lipiodol(img, save_folder, ct_dims, num_tumors=1):
     mid_mask = copy.deepcopy(img)
     mid_mask = mid_mask > 150
@@ -53,13 +52,11 @@ def seg_target_lipiodol(img, save_folder, ct_dims, num_tumors=1):
     masks.save_mask(target_mask, join(save_folder, "target_lip"), ct_dims, save_mesh=True)
     masks.save_mask(nontarget_mask, join(save_folder, "nontarget_lip"), ct_dims, save_mesh=True)
 
-
 def seg_liver_mri(mri_img, save_folder, mri_dims, model):
     """Use a UNet to segment liver on MRI"""
 
     C = config.Config()
     #correct bias field!
-
 
 def seg_liver_ct(ct_img, save_folder, ct_dims, model):
     """Use a UNet to segment liver on CT"""
@@ -92,7 +89,7 @@ def seg_liver_ct(ct_img, save_folder, ct_dims, model):
     #B3 = ball(4)
     #B3 = B3[:,:,[1,3,5,6,8]]
     liver_mask = binary_opening(binary_closing(liver_mask, B3, 1), B3, 1)
-    
+
     labels, num_labels = label(liver_mask, return_num=True)
     label_sizes = [np.sum(labels == label_id) for label_id in range(1,num_labels+1)]
     biggest_label = label_sizes.index(max(label_sizes))+1
