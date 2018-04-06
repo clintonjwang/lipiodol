@@ -4,9 +4,142 @@ import niftiutils.masks as masks
 import niftiutils.helper_fxns as hf
 import niftiutils.transforms as tr
 import numpy as np
+import math
+from math import pi, radians, degrees
 from os.path import *
 from scipy.ndimage.morphology import binary_closing, binary_opening, binary_dilation
 from skimage.morphology import ball, label
+
+###########################
+### Spherical shell analysis
+###########################
+
+def calc_intensity_shells_angles(img, ball_mask_path):
+    IVs = np.zeros((181,361,7)) # avg voxel intensity at core (0-50%), 50-60%, 60-70%, 70-80%, 80-90%, 90-100%, 100%-120%, 120%-150%
+    contributions = np.ones((181,361,7)) * 1e-4
+    
+    ball, _ = masks.get_mask(ball_mask_path)
+    nonzeros = np.argwhere(ball)
+    
+    R = (nonzeros[:,0].max() - nonzeros[:,0].min()) / 2
+    m = ball.shape[0]//2
+    
+    for x in range(ball.shape[0]):
+        for y in range(ball.shape[1]):
+            for z in range(ball.shape[2]):
+                    
+                X = m-.5-x
+                Y = m-.5-y
+                Z = m-.5-z
+                r = (X*X+Y*Y+Z*Z)**.5
+                if r > R*1.5 or r < R*.5:
+                    continue
+                    
+                theta = degrees(math.acos(Z/r))
+                phi = degrees(math.atan2(Y,X)+pi)
+                
+                if r >= R*1.2:
+                    shell_num = -1
+                elif r > R*1:
+                    shell_num = -2
+                else:
+                    shell_num = int((r/R-.5)*10)
+                    
+                dt = abs(round(theta) - theta)
+                dp = abs(round(phi) - theta)
+                IVs[round(theta), round(phi), shell_num] += (dt+dp)/2 * img[x,y,z]
+                contributions[round(theta), round(phi), shell_num] += (dt+dp)/2
+                
+                if False:
+                    dt = math.ceil(theta) - theta
+                    dp = math.ceil(phi) - theta
+                    IVs[math.ceil(theta), math.ceil(phi), shell_num] += (dt+dp)/2 * img[x,y,z]
+                    contributions[math.ceil(theta), math.ceil(phi), shell_num] += (dt+dp)/2
+
+                    IVs[math.floor(theta), math.ceil(phi), shell_num] += (1-dt+dp)/2 * img[x,y,z]
+                    contributions[math.floor(theta), math.ceil(phi), shell_num] += (1-dt+dp)/2
+
+                    IVs[math.ceil(theta), math.floor(phi), shell_num] += (dt+1-dp)/2 * img[x,y,z]
+                    contributions[math.ceil(theta), math.floor(phi), shell_num] += (dt+1-dp)/2
+
+                    IVs[math.floor(theta), math.floor(phi), shell_num] += (1-dt+1-dp)/2 * img[x,y,z]
+                    contributions[math.floor(theta), math.floor(phi), shell_num] += (1-dt+1-dp)/2
+    
+    return IVs / contributions
+
+def fibonacci_sphere(samples=1, spherical_coords=False, randomize=False):
+    """Even sampling of points on the sphere"""
+    rnd = 1.
+    if randomize:
+        rnd = random.random() * samples
+        
+    points = []
+    offset = 2./samples
+    increment = math.pi * (3. - math.sqrt(5.))
+
+    for i in range(samples):
+        y = ((i * offset) - 1) + (offset / 2);
+        r = math.sqrt(1 - pow(y,2))
+
+        phi = ((i + rnd) % samples) * increment
+        
+        if spherical_coords:
+            x = math.cos(phi) * r
+            z = math.sin(phi) * r
+            
+            theta = degrees(math.acos(z/r))
+            phi = degrees(math.atan2(y,x)+pi)
+
+            points.append([theta,phi,1])
+            
+        else:
+            x = math.cos(phi) * r
+            z = math.sin(phi) * r
+
+            points.append([x,y,z])
+
+    return np.array(points)
+
+def get_avg_core_intensity(reg_img_path, ball_mask_path, r_frac=.5):
+    img, dims = hf.nii_load(reg_img_path)
+    ball, _ = masks.get_mask(ball_mask_path)
+    nonzeros = np.argwhere(ball)
+    
+    R = (nonzeros[:,0].max() - nonzeros[:,0].min()) / 2
+    m = ball.shape[0]//2
+    
+    for x in range(ball.shape[0]):
+        for y in range(ball.shape[1]):
+            for z in range(ball.shape[2]):
+                    
+                X = m-.5-x
+                Y = m-.5-y
+                Z = m-.5-z
+                r = (X*X+Y*Y+Z*Z)**.5
+                if r > R*r_frac:
+                    ball[x,y,z] = 0
+                    
+    img[ball == 0] = np.nan
+    V = ball.sum()
+    I = np.nansum(img)
+    return I/V
+
+def get_avg_ball_intensity(reg_img_path, ball_mask_path):
+    img, dims = hf.nii_load(reg_img_path)
+    ball, _ = masks.get_mask(ball_mask_path)
+    nonzeros = np.argwhere(ball)
+    
+    R = (nonzeros[:,0].max() - nonzeros[:,0].min()) / 2
+    m = ball.shape[0]//2
+    img[ball == 0] = np.nan
+    V = ball.sum()
+    I = np.nansum(img)
+    return I/V
+
+
+###########################
+### Segmentation methods
+###########################
 
 def seg_lipiodol(img, save_folder, ct_dims):
 	low_mask = copy.deepcopy(img)
