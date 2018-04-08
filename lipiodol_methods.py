@@ -2,11 +2,13 @@ import config
 import copy
 import niftiutils.masks as masks
 import niftiutils.helper_fxns as hf
-import random
 import niftiutils.transforms as tr
+import niftiutils.registration as reg
 import numpy as np
+import random
 import math
 from math import pi, radians, degrees
+import matplotlib.pyplot as plt
 import glob
 import os
 from os.path import *
@@ -14,10 +16,151 @@ from scipy.ndimage.morphology import binary_closing, binary_opening, binary_dila
 from skimage.morphology import ball, label
 
 ###########################
+### Higher-level methods
+###########################
+
+def spherize(patient_id, target_dir):
+	def ball_ct_batch():
+		_ = reg.transform_region(ct24_path, xform_path, crops, pads, [1.]*3, ball_ct24_path,
+								 mask_scale=mask_scale, target_shape=target_shape)
+		try:
+			_ = reg.transform_mask(highlip_mask_path, ct24_path, xform_path,
+								 crops, pads, [1.]*3, ball_highlip_mask_path, mask_scale=mask_scale)
+		except:
+			print(ball_highlip_mask_path, "is empty")
+			os.remove(ball_highlip_mask_path+".ics")
+			os.remove(ball_highlip_mask_path+".ids")
+		_ = reg.transform_mask(midlip_mask_path, ct24_path, xform_path,
+							 crops, pads, [1.]*3, ball_midlip_mask_path, mask_scale=mask_scale)
+		
+	def ball_mrbl_batch():
+		_ = reg.transform_region(mribl_art_path, xform_path, crops, pads, [1.]*3, ball_mribl_path, target_shape=target_shape)
+		_ = reg.transform_mask(mribl_enh_mask_path, mribl_art_path, xform_path,
+							 crops, pads, [1.]*3, ball_mribl_enh_mask_path)
+		
+	def ball_mr30_batch():
+		_ = reg.transform_region(mri30d_art_path, xform_path, crops, pads, [1.]*3, ball_mri30d_path, target_shape=target_shape)
+		_ = reg.transform_mask(mri30d_enh_mask_path, mri30d_art_path, xform_path,
+							 crops, pads, [1.]*3, ball_mri30d_enh_mask_path)
+
+	paths = get_paths(patient_id, target_dir)
+
+	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
+	mribl_art_path, mribl_pre_path, \
+	mribl_tumor_mask_path, mribl_liver_mask_path, \
+	mribl_enh_mask_path, mribl_nec_mask_path, \
+	mri30d_art_path, mri30d_pre_path, \
+	mri30d_tumor_mask_path, mri30d_liver_mask_path, \
+	mri30d_enh_mask_path, mri30d_nec_mask_path, \
+	ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
+	ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
+	midlip_mask_path, ball_midlip_mask_path, \
+	highlip_mask_path, ball_highlip_mask_path = paths
+	
+	ctmask,ctd = masks.get_mask(ct24_tumor_mask_path, img_path=ct24_path)
+	mrmask,mrd = masks.get_mask(mribl_tumor_mask_path, img_path=mribl_art_path)
+	mask_scale = (ctmask.sum()*np.product(ctd) / (mrmask.sum()*np.product(mrd)))**(1/6)
+	CT = np.max([ctmask.shape[i] * ctd[i] / mask_scale for i in range(3)])
+	MRBL = np.max([mrmask.shape[i] * mrd[i] for i in range(3)])
+	
+	mrmask,mrd = masks.get_mask(mri30d_tumor_mask_path, img_path=mri30d_art_path)
+	MR30 = np.max([mrmask.shape[i] * mrd[i] for i in range(3)])
+	
+	if CT > MRBL and CT > MR30:
+		xform_path, crops, pads = reg.get_mask_Tx_shape(ct24_path, ct24_tumor_mask_path, mask_scale, mask_path=ball_mask_path)
+		target_shape = masks.get_mask(ball_mask_path)[0].shape
+		ball_ct_batch()
+
+		xform_path, crops, pads = reg.get_mask_Tx_shape(mribl_art_path, mribl_tumor_mask_path, ball_mask_path=ball_mask_path)
+		ball_mrbl_batch()
+
+		xform_path, crops, pads = reg.get_mask_Tx_shape(mri30d_art_path, mri30d_tumor_mask_path, ball_mask_path=ball_mask_path)
+		ball_mr30_batch()
+		
+	elif MRBL > MR30:
+		xform_path, crops, pads = reg.get_mask_Tx_shape(mribl_art_path,
+											mribl_tumor_mask_path, mask_path=ball_mask_path)
+		target_shape = masks.get_mask(ball_mask_path)[0].shape
+		ball_mrbl_batch()
+		
+		xform_path, crops, pads = reg.get_mask_Tx_shape(ct24_path, ct24_tumor_mask_path,
+													mask_scale, ball_mask_path=ball_mask_path)
+		ball_ct_batch()
+
+		xform_path, crops, pads = reg.get_mask_Tx_shape(mri30d_art_path, mri30d_tumor_mask_path, ball_mask_path=ball_mask_path)
+		ball_mr30_batch()
+		
+	else:
+		xform_path, crops, pads = reg.get_mask_Tx_shape(mri30d_art_path, mri30d_tumor_mask_path, mask_path=ball_mask_path)
+		target_shape = masks.get_mask(ball_mask_path)[0].shape
+		ball_mr30_batch()
+		
+		xform_path, crops, pads = reg.get_mask_Tx_shape(mribl_art_path,
+											mribl_tumor_mask_path, ball_mask_path=ball_mask_path)
+		ball_mrbl_batch()
+		
+		xform_path, crops, pads = reg.get_mask_Tx_shape(ct24_path, ct24_tumor_mask_path,
+													mask_scale, ball_mask_path=ball_mask_path)
+		ball_ct_batch()
+
+
+###########################
+### Visualization
+###########################
+
+def draw_unreg_fig(img_path, mask_path, save_path, color, modality):
+	img,_ = hf.nii_load(img_path)
+	mask,_ = masks.get_mask(mask_path)
+	nz = np.argwhere(mask)
+
+	pad = [img.shape[0]//5, img.shape[1]//5]
+	sl1 = slice(max(nz[:,0].min()-pad[0],0), nz[:,0].max()+pad[0])
+	sl2 = slice(max(nz[:,1].min()-pad[1],0), nz[:,1].max()+pad[1])
+	img = np.transpose(img[sl1,sl2], (1,0,2))
+	mask = np.transpose(mask[sl1,sl2], (1,0,2))
+	sl1, sl2 = nz[:,-1].min(), nz[:,-1].max()
+
+	if modality=="mr":
+		for sl in range(sl1,sl2,(sl2-sl1)//10):
+			plt.close()
+			plt.imshow(img[...,sl], cmap='gray')
+			plt.contour(mask[:,:,sl], colors=color, alpha=.4)
+			plt.axis('off')
+			plt.savefig(save_path+"_%d.png" % sl, dpi=100, bbox_inches='tight')
+		
+	elif modality=="ct":
+		for sl in range(sl1,sl2,(sl2-sl1)//5):
+			plt.close()
+			plt.imshow(img[...,sl], cmap='gray', vmin=30, vmax=250)
+			plt.contour(blmask[:,:,sl], colors=color, alpha=.4)
+			plt.axis('off')
+			plt.savefig(save_path+"_%d.png" % sl, dpi=100, bbox_inches='tight')
+
+def draw_reg_fig(img_path, mask_path, save_path, color, modality):
+	img,_ = hf.nii_load(img)
+	mask,_ = masks.get_mask(ball_mribl_enh_mask_path)
+	img = np.transpose(img, (1,0,2))
+	mask = np.transpose(mask, (1,0,2))
+	
+	for sl in range(img.shape[-1]//5+1,img.shape[-1]*4//5,img.shape[-1]//8):
+		plt.close()
+		if modality=="mr":
+			plt.imshow(img[...,sl], cmap='gray')
+		elif modality=="ct":
+			plt.imshow(img[...,sl], cmap='gray', vmin=30, vmax=250)
+		plt.contour(mask[:,:,sl], colors='b', alpha=.4)
+		plt.axis('off')
+		plt.savefig(save_path+"_%d.png" % sl, dpi=100, bbox_inches='tight')
+
+
+###########################
 ### File I/O
 ###########################
 
 def get_paths(patient_id, target_dir, check_valid=True):
+	if not exists(join(target_dir, patient_id)):
+		raise ValueError(patient_id, "does not exist!")
+
 	mask_dir = join(target_dir, patient_id, "masks")
 	nii_dir = join(target_dir, patient_id, "nii_files")
 	if not exists(nii_dir):
@@ -26,11 +169,13 @@ def get_paths(patient_id, target_dir, check_valid=True):
 	ct24_path = join(target_dir, patient_id, "nii_files", "ct24.nii.gz")
 	ct24_tumor_mask_path = glob.glob(join(mask_dir, "tumor*24h*.ids"))
 	ct24_liver_mask_path = glob.glob(join(mask_dir, "wholeliver_24hCT*.ids"))
-	if len(ct24_tumor_mask_path) > 0 and len(ct24_liver_mask_path) > 0:
+	if len(ct24_tumor_mask_path) > 0:
 		ct24_tumor_mask_path = ct24_tumor_mask_path[0]
-		ct24_liver_mask_path = ct24_liver_mask_path[0]
 	else:
 		ct24_tumor_mask_path = join(mask_dir, "tumor_24h.ids")
+	if len(ct24_liver_mask_path) > 0:
+		ct24_liver_mask_path = ct24_liver_mask_path[0]
+	else:
 		ct24_liver_mask_path = join(mask_dir, "wholeliver_24hCT.ids")
 
 	mribl_art_path = join(target_dir, patient_id, "MRI-BL", "mribl_art.nii.gz")
@@ -59,9 +204,11 @@ def get_paths(patient_id, target_dir, check_valid=True):
 			mri30d_tumor_mask_path, mri30d_liver_mask_path, \
 			mri30d_enh_mask_path, mri30d_nec_mask_path]
 
+	flag = False
 	for path in paths:
 		if not exists(path) and not exists(path+".ics"):
 			print(path, "does not exist!")
+			flag=True
 			if check_valid:
 				raise ValueError(path)
 
@@ -77,11 +224,13 @@ def get_paths(patient_id, target_dir, check_valid=True):
 	highlip_mask_path = join(mask_dir, "high_lipiodol")
 	ball_highlip_mask_path = join(mask_dir, "ball_lipiodol")
 
-	paths += ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
+	paths += [ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
 			ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
 			midlip_mask_path, ball_midlip_mask_path, \
-			highlip_mask_path, ball_highlip_mask_path
+			highlip_mask_path, ball_highlip_mask_path]
 
+	#if flag:
+	#	paths[-1] = None
 	return paths
 
 
@@ -330,7 +479,6 @@ def seg_liver_ct(ct_path, save_path, model, tumor_mask_path=None):
 
 	x = tr.apply_window(ct_img)
 	x -= np.amin(x)
-	x /= np.amax(x)
 
 	crops = list(map(int,[.05 * x.shape[0], .95 * x.shape[0]] + \
 					[.05 * x.shape[1], .95 * x.shape[1]] + \
@@ -358,7 +506,7 @@ def seg_liver_ct(ct_path, save_path, model, tumor_mask_path=None):
 	liver_mask[labels != biggest_label] = 0
 
 	if tumor_mask_path is not None:
-		tumor_mask, _ = masks.get_mask(tumor_mask_path, mri_dims, mri_img.shape)
+		tumor_mask, _ = masks.get_mask(tumor_mask_path, ct_dims, ct_img.shape)
 		liver_mask[tumor_mask > tumor_mask.max()/2] = liver_mask.max()
 	
 	masks.save_mask(liver_mask, save_path, ct_dims, save_mesh=True)

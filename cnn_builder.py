@@ -150,7 +150,7 @@ def train_gen_mri(n=1):
 def train_gen_ct(n=1):
 	C = config.Config()
 
-	lesion_ids = [z[:2] for z in os.listdir(C.full_img_dir) if z.endswith("_ct.npy")]
+	lesion_ids = [z[:z.find("_")] for z in os.listdir(C.full_img_dir) if z.endswith("_ct.npy")]
 	while True:
 		lesion_id = random.choice(lesion_ids)
 		x = np.load(join(C.full_img_dir, lesion_id+"_ct.npy"))
