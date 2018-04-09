@@ -1,5 +1,6 @@
 import config
 import copy
+import mahotas.features as mah
 import niftiutils.masks as masks
 import niftiutils.helper_fxns as hf
 import niftiutils.transforms as tr
@@ -20,28 +21,30 @@ from skimage.morphology import ball, label
 ###########################
 
 def spherize(patient_id, target_dir):
+	import importlib
+	importlib.reload(reg)
 	def ball_ct_batch():
 		_ = reg.transform_region(ct24_path, xform_path, crops, pads, [1.]*3, ball_ct24_path,
 								 mask_scale=mask_scale, target_shape=target_shape)
 		try:
 			_ = reg.transform_mask(highlip_mask_path, ct24_path, xform_path,
-								 crops, pads, [1.]*3, ball_highlip_mask_path, mask_scale=mask_scale)
+								 crops, pads, [1.]*3, ball_highlip_mask_path, mask_scale=mask_scale, target_shape=target_shape)
 		except:
 			print(ball_highlip_mask_path, "is empty")
 			os.remove(ball_highlip_mask_path+".ics")
 			os.remove(ball_highlip_mask_path+".ids")
 		_ = reg.transform_mask(midlip_mask_path, ct24_path, xform_path,
-							 crops, pads, [1.]*3, ball_midlip_mask_path, mask_scale=mask_scale)
+							 crops, pads, [1.]*3, ball_midlip_mask_path, mask_scale=mask_scale, target_shape=target_shape)
 		
 	def ball_mrbl_batch():
 		_ = reg.transform_region(mribl_art_path, xform_path, crops, pads, [1.]*3, ball_mribl_path, target_shape=target_shape)
 		_ = reg.transform_mask(mribl_enh_mask_path, mribl_art_path, xform_path,
-							 crops, pads, [1.]*3, ball_mribl_enh_mask_path)
+							 crops, pads, [1.]*3, ball_mribl_enh_mask_path, target_shape=target_shape)
 		
 	def ball_mr30_batch():
 		_ = reg.transform_region(mri30d_art_path, xform_path, crops, pads, [1.]*3, ball_mri30d_path, target_shape=target_shape)
 		_ = reg.transform_mask(mri30d_enh_mask_path, mri30d_art_path, xform_path,
-							 crops, pads, [1.]*3, ball_mri30d_enh_mask_path)
+							 crops, pads, [1.]*3, ball_mri30d_enh_mask_path, target_shape=target_shape)
 
 	paths = get_paths(patient_id, target_dir)
 
@@ -59,11 +62,14 @@ def spherize(patient_id, target_dir):
 	
 	ctmask,ctd = masks.get_mask(ct24_tumor_mask_path, img_path=ct24_path)
 	mrmask,mrd = masks.get_mask(mribl_tumor_mask_path, img_path=mribl_art_path)
+	ctmask = hf.crop_nonzero(ctmask)[0]
+	mrmask = hf.crop_nonzero(mrmask)[0]
 	mask_scale = (ctmask.sum()*np.product(ctd) / (mrmask.sum()*np.product(mrd)))**(1/6)
 	CT = np.max([ctmask.shape[i] * ctd[i] / mask_scale for i in range(3)])
 	MRBL = np.max([mrmask.shape[i] * mrd[i] for i in range(3)])
 	
 	mrmask,mrd = masks.get_mask(mri30d_tumor_mask_path, img_path=mri30d_art_path)
+	mrmask = hf.crop_nonzero(mrmask)[0]
 	MR30 = np.max([mrmask.shape[i] * mrd[i] for i in range(3)])
 	
 	if CT > MRBL and CT > MR30:
@@ -95,13 +101,86 @@ def spherize(patient_id, target_dir):
 		target_shape = masks.get_mask(ball_mask_path)[0].shape
 		ball_mr30_batch()
 		
-		xform_path, crops, pads = reg.get_mask_Tx_shape(mribl_art_path,
-											mribl_tumor_mask_path, ball_mask_path=ball_mask_path)
+		xform_path, crops, pads = reg.get_mask_Tx_shape(mribl_art_path, mribl_tumor_mask_path, ball_mask_path=ball_mask_path)
 		ball_mrbl_batch()
 		
 		xform_path, crops, pads = reg.get_mask_Tx_shape(ct24_path, ct24_tumor_mask_path,
 													mask_scale, ball_mask_path=ball_mask_path)
 		ball_ct_batch()
+
+def get_row_entry(patient_id, target_dir):
+	def get_vol_coverage(row):
+		ball_mask,_ = masks.get_mask(ball_mask_path)
+		ball_mask = ball_mask/ball_mask.max()
+
+		mask,_ = masks.get_mask(ball_mribl_enh_mask_path)
+		row.append(mask.sum()/ball_mask.sum())
+
+		mask,_ = masks.get_mask(ball_midlip_mask_path)
+		row.append(mask.sum()/ball_mask.sum())
+		return row
+
+	def get_rim_coverage(row, img, threshold):
+		IVs = calc_intensity_shells_angles(img, ball_mask_path)
+		IVs[IVs==0] = np.nan
+
+		samples = fibonacci_sphere(2500, True, randomize=True)
+		samples = np.round(samples).astype(int)
+		s0 = samples[:,0]
+		s1 = samples[:,1]
+		#for i in range(IVs.shape[-1]):
+		#    print(np.nanmean(IVs[s0,s1,i]))
+
+		rim_percent = 0
+		for i in range(5):
+			num,den=0,0
+			for j in range(len(s0)):
+				if not np.isnan(IVs[s0[j],s1[j],i]):
+					den += 1
+					if IVs[s0[j],s1[j],i] > threshold:
+						num += 1
+			rim_percent = max([rim_percent, num/den])
+		row.append(rim_percent)
+
+		return row
+
+	def get_texture_feats(row, img):
+		mask,_ = masks.get_mask(img)
+
+		feats = mah.haralick(mask)
+		sum_entropy = feats[:,7].mean()
+		entropy = feats[:,8].mean()
+		diff_entropy = feats[:,10].mean()
+
+		row += [sum_entropy, entropy, diff_entropy]
+		
+		return row
+
+	paths = get_paths(patient_id, target_dir)
+
+	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
+	mribl_art_path, mribl_pre_path, \
+	mribl_tumor_mask_path, mribl_liver_mask_path, \
+	mribl_enh_mask_path, mribl_nec_mask_path, \
+	mri30d_art_path, mri30d_pre_path, \
+	mri30d_tumor_mask_path, mri30d_liver_mask_path, \
+	mri30d_enh_mask_path, mri30d_nec_mask_path, \
+	ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
+	ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
+	midlip_mask_path, ball_midlip_mask_path, \
+	highlip_mask_path, ball_highlip_mask_path = paths
+
+	row = []
+	row = get_vol_coverage(row)
+	
+	#ball_IV = get_avg_ball_intensity(ball_ct24_path, ball_mask_path)
+	core_IV = get_avg_core_intensity(ball_ct24_path, ball_mask_path)
+	row = get_rim_coverage(row, hf.nii_load(ball_ct24_path)[0], core_IV)
+	row = get_rim_coverage(row, masks.get_mask(ball_mribl_enh_mask_path)[0] + 1, 1.5)
+	row = get_texture_feats(row, ball_mribl_enh_mask_path)
+	row = get_texture_feats(row, ball_midlip_mask_path)
+
+	return row
 
 
 ###########################
