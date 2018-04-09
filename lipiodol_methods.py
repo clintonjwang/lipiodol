@@ -108,23 +108,54 @@ def spherize(patient_id, target_dir):
 													mask_scale, ball_mask_path=ball_mask_path)
 		ball_ct_batch()
 
+def enhancing_to_nec(ball_ct24_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path,
+                     ball_mask_path, liplvls=[0,100,150,200]):
+    mrbl_enh = masks.get_mask(ball_mribl_enh_mask_path)[0]
+    mr30d_enh = masks.get_mask(ball_mri30d_enh_mask_path)[0]
+    mrbl_nec = masks.difference(ball_mask_path, ball_mribl_enh_mask_path)
+    mr30d_nec = masks.difference(ball_mask_path, ball_mri30d_enh_mask_path)
+    
+    ct24 = hf.nii_load(ball_ct24_path)[0]
+    
+    resp = mrbl_enh * mr30d_nec/mr30d_nec.max()
+    unresp = mrbl_enh * mr30d_enh/mr30d_enh.max()
+    prog = mrbl_nec * mr30d_enh/mr30d_enh.max()
+    stable = mrbl_nec * mr30d_nec/mr30d_nec.max()
+    
+    lips = [[np.sum([(ct24 * resp) > liplvls[i]]),
+              np.sum([(ct24 * unresp) > liplvls[i]]), 
+              np.sum([(ct24 * prog) > liplvls[i]]), 
+              np.sum([(ct24 * stable) > liplvls[i]])]
+             for i in range(len(liplvls))]
+    
+    lips = [[l[0]/(l[0]+l[1]), l[1]/(l[0]+l[1]), l[2]/(l[2]+l[3]), l[3]/(l[2]+l[3])] for l in lips]
+    return lips
+    
 def get_row_entry(patient_id, target_dir):
+	import importlib
+	importlib.reload(masks)
+	importlib.reload(tr)
+
 	def get_vol_coverage(row):
 		ball_mask,_ = masks.get_mask(ball_mask_path)
 		ball_mask = ball_mask/ball_mask.max()
 
 		mask,_ = masks.get_mask(ball_mribl_enh_mask_path)
-		row.append(mask.sum()/ball_mask.sum())
+		mask = mask/mask.max()
+		row.append(mask.sum()/ball_mask.sum()) #enhancing_vol%
 
 		mask,_ = masks.get_mask(ball_midlip_mask_path)
-		row.append(mask.sum()/ball_mask.sum())
+		M = masks.intersection(ball_midlip_mask_path, ball_mask_path)
+		M = M/M.max()
+		row.append(M.sum()/ball_mask.sum()) #lipcoverage_vol%
+
 		return row
 
-	def get_rim_coverage(row, img, threshold):
+	def get_rim_coverage(row, img, threshold, ball_mask_path):
 		IVs = calc_intensity_shells_angles(img, ball_mask_path)
 		IVs[IVs==0] = np.nan
 
-		samples = fibonacci_sphere(2500, True, randomize=True)
+		samples = fibonacci_sphere(3000, True, randomize=True)
 		samples = np.round(samples).astype(int)
 		s0 = samples[:,0]
 		s1 = samples[:,1]
@@ -142,18 +173,6 @@ def get_row_entry(patient_id, target_dir):
 			rim_percent = max([rim_percent, num/den])
 		row.append(rim_percent)
 
-		return row
-
-	def get_texture_feats(row, img):
-		mask,_ = masks.get_mask(img)
-
-		feats = mah.haralick(mask)
-		sum_entropy = feats[:,7].mean()
-		entropy = feats[:,8].mean()
-		diff_entropy = feats[:,10].mean()
-
-		row += [sum_entropy, entropy, diff_entropy]
-		
 		return row
 
 	paths = get_paths(patient_id, target_dir)
@@ -175,13 +194,100 @@ def get_row_entry(patient_id, target_dir):
 	
 	#ball_IV = get_avg_ball_intensity(ball_ct24_path, ball_mask_path)
 	core_IV = get_avg_core_intensity(ball_ct24_path, ball_mask_path)
-	row = get_rim_coverage(row, hf.nii_load(ball_ct24_path)[0], core_IV)
-	row = get_rim_coverage(row, masks.get_mask(ball_mribl_enh_mask_path)[0] + 1, 1.5)
-	row = get_texture_feats(row, ball_mribl_enh_mask_path)
-	row = get_texture_feats(row, ball_midlip_mask_path)
+	row = get_rim_coverage(row, hf.nii_load(ball_ct24_path)[0], max(core_IV,150), ball_mask_path)
+	row = get_rim_coverage(row, masks.get_mask(ball_mribl_enh_mask_path)[0] + 1, 1.5, ball_mask_path)
+
+	mask = masks.get_mask(ball_mask_path)[0]
+
+	img = hf.nii_load(ball_mribl_path)[0]
+	img = img*mask/mask.max()
+	img -= img[mask > 0].min()
+	img = hf.crop_nonzero(img)[0]
+	img = (img*255/img.max()).astype('uint8')
+	row = get_texture_feats(row, img)
+
+	img = hf.nii_load(ball_ct24_path)[0]
+	img = img*mask/mask.max()
+	img = tr.apply_window(img, limits=[0,300])
+	img = hf.crop_nonzero(img)[0]
+	img = (img*255/img.max()).astype('uint8')
+	row = get_texture_feats(row, img)
+
+	row = get_peripheral_coverage(row, ball_ct24_path, ball_mask_path)
 
 	return row
 
+def write_ranked_imgs(df, column, img_type, root_dir, overwrite=False, mask_type=None, window=None):
+    if not exists(root_dir):
+        os.makedirs(root_dir)
+        
+    for ix,row in df.sort_values([column], ascending=False).iterrows():
+        save_dir = join(root_dir, "%d_%s" % (row[column]*100, ix))
+        
+        patient_id = ix
+        paths = lm.get_paths(patient_id, target_dir, check_valid=False)
+
+        mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
+        mribl_art_path, mribl_pre_path, \
+        mribl_tumor_mask_path, mribl_liver_mask_path, \
+        mribl_enh_mask_path, mribl_nec_mask_path, \
+        mri30d_art_path, mri30d_pre_path, \
+        mri30d_tumor_mask_path, mri30d_liver_mask_path, \
+        mri30d_enh_mask_path, mri30d_nec_mask_path, \
+        ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
+        ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
+        midlip_mask_path, ball_midlip_mask_path, \
+        highlip_mask_path, ball_highlip_mask_path = paths
+        
+        if mask_type is not None:
+            masks.create_dcm_with_mask(eval(img_type), eval(mask_type), save_dir,
+                                       overwrite=True, padding=1.5, window=window)
+        else:
+            img = hf.nii_load(eval(img_type))
+            if window=="ct":
+                img = tr.apply_window(img)
+            hf.create_dicom(img, save_dir, overwrite=overwrite)
+
+###########################
+### Features
+###########################
+
+def get_texture_feats(row, img):
+	feats = mah.haralick(img, distance=2)
+	contrast = feats[:,1].mean()
+	var = feats[:,3].mean()
+	idm = feats[:,4].mean()
+
+	row += [contrast, var, idm]
+	
+	return row
+
+def get_peripheral_coverage(row, ball_ct24_path, ball_mask_path, threshold=100, dR=5):
+	ball = masks.get_mask(ball_mask_path)[0]
+	nonzeros = np.argwhere(ball)
+	
+	R = (nonzeros[:,0].max() - nonzeros[:,0].min()) / 2
+	m = ball.shape[0]//2
+
+	img = hf.nii_load(ball_ct24_path)[0]
+	img = img*(1-mask/mask.max())
+	
+	for x in range(ball.shape[0]):
+		for y in range(ball.shape[1]):
+			for z in range(ball.shape[2]):
+				if img[x,y,z] == 0:
+					continue
+					
+				X = m-.5-x
+				Y = m-.5-y
+				Z = m-.5-z
+				r = (X*X+Y*Y+Z*Z)**.5
+				if r > R+dR:
+					img[x,y,z] = 0
+
+	row.append((img > threshold).sum() / (img > 0).sum())
+
+	return row
 
 ###########################
 ### Visualization
@@ -199,35 +305,30 @@ def draw_unreg_fig(img_path, mask_path, save_path, color, modality):
 	mask = np.transpose(mask[sl1,sl2], (1,0,2))
 	sl1, sl2 = nz[:,-1].min(), nz[:,-1].max()
 
-	if modality=="mr":
-		for sl in range(sl1,sl2,(sl2-sl1)//10):
-			plt.close()
-			plt.imshow(img[...,sl], cmap='gray')
-			plt.contour(mask[:,:,sl], colors=color, alpha=.4)
-			plt.axis('off')
-			plt.savefig(save_path+"_%d.png" % sl, dpi=100, bbox_inches='tight')
-		
-	elif modality=="ct":
-		for sl in range(sl1,sl2,(sl2-sl1)//5):
-			plt.close()
-			plt.imshow(img[...,sl], cmap='gray', vmin=30, vmax=250)
-			plt.contour(blmask[:,:,sl], colors=color, alpha=.4)
-			plt.axis('off')
-			plt.savefig(save_path+"_%d.png" % sl, dpi=100, bbox_inches='tight')
-
-def draw_reg_fig(img_path, mask_path, save_path, color, modality):
-	img,_ = hf.nii_load(img)
-	mask,_ = masks.get_mask(ball_mribl_enh_mask_path)
-	img = np.transpose(img, (1,0,2))
-	mask = np.transpose(mask, (1,0,2))
-	
-	for sl in range(img.shape[-1]//5+1,img.shape[-1]*4//5,img.shape[-1]//8):
+	for sl in range(sl1,sl2, max((sl2-sl1)//10,1) ):
 		plt.close()
 		if modality=="mr":
 			plt.imshow(img[...,sl], cmap='gray')
 		elif modality=="ct":
 			plt.imshow(img[...,sl], cmap='gray', vmin=30, vmax=250)
-		plt.contour(mask[:,:,sl], colors='b', alpha=.4)
+		plt.contour(mask[:,:,sl], colors=color, alpha=.4)
+		plt.axis('off')
+		plt.savefig(save_path+"_%d.png" % sl, dpi=100, bbox_inches='tight')
+		
+
+def draw_reg_fig(img_path, mask_path, save_path, color, modality):
+	img,_ = hf.nii_load(img)
+	mask,_ = masks.get_mask(mask_path)
+	img = np.transpose(img, (1,0,2))
+	mask = np.transpose(mask, (1,0,2))
+	
+	for sl in range(img.shape[-1]//5+1,img.shape[-1]*4//5, max(img.shape[-1]//8,1) ):
+		plt.close()
+		if modality=="mr":
+			plt.imshow(img[...,sl], cmap='gray')
+		elif modality=="ct":
+			plt.imshow(img[...,sl], cmap='gray', vmin=30, vmax=250)
+		plt.contour(mask[:,:,sl], colors=color, alpha=.4)
 		plt.axis('off')
 		plt.savefig(save_path+"_%d.png" % sl, dpi=100, bbox_inches='tight')
 
