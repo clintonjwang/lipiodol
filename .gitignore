@@ -2,6 +2,7 @@
 *.csv
 *.pdf
 *.doc*
+Figures
 *private*
 data/
 
