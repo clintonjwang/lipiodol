@@ -9,7 +9,6 @@ import numpy as np
 import random
 import math
 from math import pi, radians, degrees
-import matplotlib.pyplot as plt
 import glob
 import shutil
 import os
@@ -220,7 +219,7 @@ def enhancing_to_nec(patient_id, target_dir, liplvls=[0,100,150,200]):
 	lips = [[l[0]/(l[0]+l[1]), l[2]/(l[2]+l[3]), (l[0]+l[1])/l[4], (l[1]+l[2])/l[4]] for l in lips]
 	return lips
 
-def lip_to_response(patient_id, target_dir, liplvls, exclude_small=False):
+def lip_to_response(patient_id, target_dir, liplvls, exclude_small=True):
 	paths = get_paths(patient_id, target_dir, check_valid=False)
 	L = liplvls + [10000]
 
@@ -259,7 +258,7 @@ def lip_to_response(patient_id, target_dir, liplvls, exclude_small=False):
 
 	return lips
 
-def vascular_to_deposition(patient_id, target_dir, liplvls, exclude_small=False):
+def vascular_to_deposition(patient_id, target_dir, liplvls, exclude_small=True):
 	paths = get_paths(patient_id, target_dir, check_valid=False)
 	L = liplvls + [10000]
 
@@ -279,24 +278,27 @@ def vascular_to_deposition(patient_id, target_dir, liplvls, exclude_small=False)
 	mrbl_enh = mrbl_enh/mrbl_enh.max()
 	ball = masks.get_mask(ball_mask_path)[0]
 	ball = ball/ball.max()
+	mrbl_nec = ball-mrbl_enh
+	mrbl_nec[mrbl_nec < 0] = 0
 
 	ct24 = hf.nii_load(ball_ct24_path)[0]
+	ct24[ct24 <= 0] = 1
 	enh_ct = ct24 * mrbl_enh
-	nec_ct = ct24 * (ball-mrbl_enh)
+	nec_ct = ct24 * mrbl_nec
 	lips_enh=[]
 	lips_nec=[]
 	for i in range(len(L)-1):
-		den = mrbl_enh.sum()
+		den = np.sum(mrbl_enh)
 		if den == 0 or (exclude_small and den <= 25): #den / V <= .05
 			lips_enh.append(np.nan)
 		else:
-			lips_enh.append(np.sum([(enh_ct > L[i]) & (enh_ct <= L[i+1])]) / den)
+			lips_enh.append(np.nansum([(enh_ct > L[i])]) / den) # & (enh_ct <= L[i+1])
 
-		den = (ball-mrbl_enh).sum()
+		den = np.sum(mrbl_nec)
 		if den == 0 or (exclude_small and den <= 25): #den / V <= .05
 			lips_nec.append(np.nan)
 		else:
-			lips_nec.append(np.sum([(nec_ct > L[i]) & (nec_ct <= L[i+1])]) / den)
+			lips_nec.append(np.nansum([(nec_ct > L[i])]) / den) # & (nec_ct <= L[i+1])
 
 	return lips_nec + lips_enh
 
@@ -619,92 +621,6 @@ def get_avg_ball_intensity(reg_img_path, ball_mask_path):
 	V = ball.sum()
 	I = np.nanmedian(img)
 	return I#/V
-
-
-
-###########################
-### Visualization
-###########################
-
-def write_ranked_imgs(df, target_dir, column, img_type, root_dir, overwrite=False, mask_type=None, window=None):
-	if not exists(root_dir):
-		os.makedirs(root_dir)
-		
-	for ix,row in df.sort_values([column], ascending=False).iterrows():
-		save_dir = join(root_dir, "%d_%s" % (row[column]*100, ix))
-		
-		patient_id = ix
-		paths = get_paths(patient_id, target_dir, check_valid=False)
-
-		mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-		mribl_art_path, mribl_pre_path, \
-		mribl_tumor_mask_path, mribl_liver_mask_path, \
-		mribl_enh_mask_path, mribl_nec_mask_path, \
-		mri30d_art_path, mri30d_pre_path, \
-		mri30d_tumor_mask_path, mri30d_liver_mask_path, \
-		mri30d_enh_mask_path, mri30d_nec_mask_path, \
-		ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
-		ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
-		midlip_mask_path, ball_midlip_mask_path, \
-		highlip_mask_path, ball_highlip_mask_path = paths
-		
-		if mask_type is not None:
-			masks.create_dcm_with_mask(eval(img_type), eval(mask_type), save_dir,
-									   overwrite=True, padding=1.5, window=window)
-		else:
-			img = hf.nii_load(eval(img_type))
-			if window=="ct":
-				img = tr.apply_window(img)
-			hf.create_dicom(img, save_dir, overwrite=overwrite)
-
-def draw_unreg_fig(img_path, mask_path, save_path, color, modality, midslice=True):
-	img,D = hf.nii_load(img_path)
-	mask,_ = masks.get_mask(mask_path, D, img.shape)
-	nz = np.argwhere(mask)
-
-	pad = [img.shape[0]//5, img.shape[1]//5]
-	sl1 = slice(max(nz[:,0].min()-pad[0],0), nz[:,0].max()+pad[0])
-	sl2 = slice(max(nz[:,1].min()-pad[1],0), nz[:,1].max()+pad[1])
-	img = np.transpose(img[sl1,sl2], (1,0,2))
-	mask = np.transpose(mask[sl1,sl2], (1,0,2))
-	sl1, sl2 = nz[:,-1].min(), nz[:,-1].max()
-
-	if midslice:
-		RNG = [(sl1+sl2)//2]
-	else:
-		RNG = range(sl1,sl2, max((sl2-sl1)//10,1))
-		
-	if not exists(dirname(save_path)):
-		os.makedirs(dirname(save_path))
-
-	for sl in RNG:
-		plt.close()
-		if modality=="mr":
-			plt.imshow(img[...,sl], cmap='gray')
-		elif modality=="ct":
-			plt.imshow(img[...,sl], cmap='gray', vmin=30, vmax=250)
-		plt.contour(mask[:,:,sl], colors=color, alpha=.4)
-		plt.axis('off')
-		if midslice:
-			plt.savefig(save_path+".png", dpi=100, bbox_inches='tight')	
-		else:
-			plt.savefig(save_path+"_%d.png" % sl, dpi=100, bbox_inches='tight')	
-
-def draw_reg_fig(img_path, mask_path, save_path, color, modality):
-	img,_ = hf.nii_load(img)
-	mask,_ = masks.get_mask(mask_path)
-	img = np.transpose(img, (1,0,2))
-	mask = np.transpose(mask, (1,0,2))
-	
-	for sl in range(img.shape[-1]//5+1,img.shape[-1]*4//5, max(img.shape[-1]//8,1) ):
-		plt.close()
-		if modality=="mr":
-			plt.imshow(img[...,sl], cmap='gray')
-		elif modality=="ct":
-			plt.imshow(img[...,sl], cmap='gray', vmin=30, vmax=250)
-		plt.contour(mask[:,:,sl], colors=color, alpha=.4)
-		plt.axis('off')
-		plt.savefig(save_path+"_%d.png" % sl, dpi=100, bbox_inches='tight')
 
 
 ###########################
