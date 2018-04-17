@@ -1,5 +1,6 @@
 import config
 import copy
+import lipiodol_methods as lm
 import niftiutils.masks as masks
 import niftiutils.helper_fxns as hf
 import niftiutils.transforms as tr
@@ -28,10 +29,10 @@ def write_ranked_imgs(df, target_dir, column, img_type, root_dir, overwrite=Fals
 		save_dir = join(root_dir, "%d_%s" % (row[column]*100, ix))
 		
 		patient_id = ix
-		paths = get_paths(patient_id, target_dir, check_valid=False)
+		paths = lm.get_paths(patient_id, target_dir, check_valid=False)
 
 		mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-		mribl_art_path, mribl_pre_path, \
+		mribl_art_path, mribl_pre_path, mribl_sub_path, \
 		mribl_tumor_mask_path, mribl_liver_mask_path, \
 		mribl_enh_mask_path, mribl_nec_mask_path, \
 		mri30d_art_path, mri30d_pre_path, \
@@ -111,6 +112,8 @@ def draw_reg_fig(img_path, mask_path, save_path, color, modality):
 ###########################
 
 def check_feature(lesion_id, df, column, legend_names, criteria_pos, criteria_neg=None, restriction=None):
+	if lesion_id not in df.index:
+		return np.nan
 	if criteria_neg is None:
 		criteria_neg = lambda x: ~criteria_pos(x) & ~np.isnan(x)
 
@@ -135,8 +138,7 @@ def check_feature(lesion_id, df, column, legend_names, criteria_pos, criteria_ne
 		return np.nan
 
 def get_df_entry(lesion_id, master_df, modality):
-	return ["Mean",
-			check_column(lesion_id, master_df, "0=well delineated, 1=infiltrative", {0: "Focal", 1: "Infiltrative"}),
+	return [check_column(lesion_id, master_df, "0=well delineated, 1=infiltrative", {0: "Focal", 1: "Infiltrative"}),
 			check_column(lesion_id, master_df, "HCC(0), ICC(1), other(2)", {0: "HCCs", 1: "ICCs", 2: "Metastases"}),
 			check_column(lesion_id, master_df, "selective=0", {0: "Selective TACE", 1: "Lobar TACE"}),
 			check_homogeneous(lesion_id, master_df, modality),
@@ -152,7 +154,7 @@ def check_homogeneous(lesion_id, df, modality):
 	elif modality == "ct24":
 		return check_feature(lesion_id, df, "lipcoverage_vol%",
 			legend_names=["Homogeneous\ndeposition", "Heterogeneous\ndeposition"],
-			criteria_pos=lambda x: x > .75, restriction="Focal")
+			criteria_pos=lambda x: x > .85, restriction="Focal")
 
 	"""if df.loc[lesion_id, "lipcoverage_vol%"] > .75:
 					return "Homogeneous" + " (n=%d)" % (df["lipcoverage_vol%"] > .75).sum()
@@ -166,13 +168,13 @@ def check_sparse(lesion_id, df, modality, restriction=None):
 	if modality == "mrbl":
 		return check_feature(lesion_id, df, "enhancing_vol%",
 			legend_names=["Sparse enhancement", "Non-sparse, heterogeneous\nenhancement"],
-			criteria_pos=lambda x: x < .25, criteria_neg=lambda x: (x>=.25) & (x<=.75),
+			criteria_pos=lambda x: x < .25, criteria_neg=lambda x: (x>=.25) & (x<=.85),
 			restriction=restriction)
 
 	elif modality == "ct24":
-		return check_feature(lesion_id, df, "lipcoverage_vol%",
+		return check_feature(lesion_id, df[df["lipcoverage_vol%"] <= .85], "lipcoverage_vol%",
 			legend_names=["Sparse deposition", "Non-sparse, heterogeneous\ndeposition"],
-			criteria_pos=lambda x: x < .25, criteria_neg=lambda x: (x>=.25) & (x<=.75),
+			criteria_pos=lambda x: x < .2,#, criteria_neg=lambda x: (x>=.25) & (x<=.85),
 			restriction=restriction)
 
 	"""if df.loc[lesion_id, "lipcoverage_vol%"] < .25:
@@ -203,9 +205,9 @@ def check_rim(lesion_id, df, modality):
 			criteria_pos=lambda x: x > .5, restriction="Focal")
 
 	elif modality == "ct24":
-		return check_feature(lesion_id, df, "rim_lipiodol%",
+		return check_feature(lesion_id, df[df["lipcoverage_vol%"] <= .85], "rim_lipiodol%",
 			legend_names=["Rim deposition", "Non-rim, heterogeneous\ndeposition"],
-			criteria_pos=lambda x: x > .3, restriction="Focal")
+			criteria_pos=lambda x: x > .28, restriction="Focal")
 
 	"""if df.loc[lesion_id, "rim_lipiodol%"] > .3 and df.loc[lesion_id, "lipcoverage_vol%"] < .75:
 			return "Rimmed" + " (n=%d)" % \

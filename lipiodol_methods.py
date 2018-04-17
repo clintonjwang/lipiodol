@@ -24,7 +24,7 @@ def check_multi_tumors(patient_id, target_dir):
 	paths = get_paths(patient_id, target_dir, check_valid=False)
 
 	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, \
+	mribl_art_path, mribl_pre_path, mribl_sub_path, \
 	mribl_tumor_mask_path, mribl_liver_mask_path, \
 	mribl_enh_mask_path, mribl_nec_mask_path, \
 	mri30d_art_path, mri30d_pre_path, \
@@ -54,7 +54,7 @@ def restrict_masks(patient_id, target_dir):
 	paths = get_paths(patient_id, target_dir)
 
 	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, \
+	mribl_art_path, mribl_pre_path, mribl_sub_path, \
 	mribl_tumor_mask_path, mribl_liver_mask_path, \
 	mribl_enh_mask_path, mribl_nec_mask_path, \
 	mri30d_art_path, mri30d_pre_path, \
@@ -115,7 +115,7 @@ def spherize(patient_id, target_dir):
 	paths = get_paths(patient_id, target_dir)
 
 	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, \
+	mribl_art_path, mribl_pre_path, mribl_sub_path, \
 	mribl_tumor_mask_path, mribl_liver_mask_path, \
 	mribl_enh_mask_path, mribl_nec_mask_path, \
 	mri30d_art_path, mri30d_pre_path, \
@@ -130,7 +130,8 @@ def spherize(patient_id, target_dir):
 	mrmask,mrd = masks.get_mask(mribl_tumor_mask_path, img_path=mribl_art_path)
 	ctmask = hf.crop_nonzero(ctmask)[0]
 	mrmask = hf.crop_nonzero(mrmask)[0]
-	mask_scale = (ctmask.sum()*np.product(ctd) / (mrmask.sum()*np.product(mrd)))**(1/6)
+	#mask_scale = (ctmask.sum()*np.product(ctd) / (mrmask.sum()*np.product(mrd)))**(1/6)
+	mask_scale = 1.
 	CT = np.max([ctmask.shape[i] * ctd[i] / mask_scale for i in range(3)])
 	MRBL = np.max([mrmask.shape[i] * mrd[i] for i in range(3)])
 	
@@ -182,7 +183,7 @@ def enhancing_to_nec(patient_id, target_dir, liplvls=[0,100,150,200]):
 	paths = get_paths(patient_id, target_dir)
 
 	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, \
+	mribl_art_path, mribl_pre_path, mribl_sub_path, \
 	mribl_tumor_mask_path, mribl_liver_mask_path, \
 	mribl_enh_mask_path, mribl_nec_mask_path, \
 	mri30d_art_path, mri30d_pre_path, \
@@ -224,7 +225,7 @@ def lip_to_response(patient_id, target_dir, liplvls, exclude_small=True):
 	L = liplvls + [10000]
 
 	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, \
+	mribl_art_path, mribl_pre_path, mribl_sub_path, \
 	mribl_tumor_mask_path, mribl_liver_mask_path, \
 	mribl_enh_mask_path, mribl_nec_mask_path, \
 	mri30d_art_path, mri30d_pre_path, \
@@ -263,7 +264,7 @@ def vascular_to_deposition(patient_id, target_dir, liplvls, exclude_small=True):
 	L = liplvls + [10000]
 
 	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, \
+	mribl_art_path, mribl_pre_path, mribl_sub_path, \
 	mribl_tumor_mask_path, mribl_liver_mask_path, \
 	mribl_enh_mask_path, mribl_nec_mask_path, \
 	mri30d_art_path, mri30d_pre_path, \
@@ -307,7 +308,7 @@ def vascular_to_deposition_inverse(patient_id, target_dir, liplvls, exclude_smal
 	L = liplvls + [10000]
 
 	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, \
+	mribl_art_path, mribl_pre_path, mribl_sub_path, \
 	mribl_tumor_mask_path, mribl_liver_mask_path, \
 	mribl_enh_mask_path, mribl_nec_mask_path, \
 	mri30d_art_path, mri30d_pre_path, \
@@ -335,20 +336,26 @@ def vascular_to_deposition_inverse(patient_id, target_dir, liplvls, exclude_smal
 
 	return lips
 
-def get_vol_coverage(row, ball_mribl_enh_mask_path, ball_midlip_mask_path, ball_mask_path):
-	ball_mask,_ = masks.get_mask(ball_mask_path)
-	ball_mask = ball_mask/ball_mask.max()
+def get_vol_coverage(midlip_mask_path, highlip_mask_path, ct24_tumor_mask_path, ct24_path):
+	#tumor,_ = masks.get_mask(mribl_tumor_mask_path)
+	#tumor = tumor/tumor.max()
+	#mask,_ = masks.get_mask(mribl_enh_mask_path)
+	#mask = mask/mask.max()
+	#row.append(mask.sum()/tumor.sum()) #enhancing_vol%
+	ret = []
 
-	mask,_ = masks.get_mask(ball_mribl_enh_mask_path)
+	img, D = hf.nii_load(ct24_path)
+	tumor,_ = masks.get_mask(ct24_tumor_mask_path, D, img.shape)
+	tumor = tumor/tumor.max()
+	mask,_ = masks.get_mask(midlip_mask_path, D, img.shape)
 	mask = mask/mask.max()
-	row.append(mask.sum()/ball_mask.sum()) #enhancing_vol%
+	ret.append((mask*tumor).sum()/tumor.sum()) #lipcoverage_vol%
 
-	mask,_ = masks.get_mask(ball_midlip_mask_path)
-	M = masks.intersection(ball_midlip_mask_path, ball_mask_path)
-	M = M/M.max()
-	row.append(M.sum()/ball_mask.sum()) #lipcoverage_vol%
+	mask,_ = masks.get_mask(highlip_mask_path, D, img.shape)
+	mask = mask/mask.max()
+	ret.append((mask*tumor).sum()/tumor.sum()) #high_lip
 
-	return row
+	return ret
 
 def get_row_entry(patient_id, target_dir):
 	import importlib
@@ -358,7 +365,7 @@ def get_row_entry(patient_id, target_dir):
 	paths = get_paths(patient_id, target_dir)
 
 	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, \
+	mribl_art_path, mribl_pre_path, mribl_sub_path, \
 	mribl_tumor_mask_path, mribl_liver_mask_path, \
 	mribl_enh_mask_path, mribl_nec_mask_path, \
 	mri30d_art_path, mri30d_pre_path, \
@@ -370,12 +377,12 @@ def get_row_entry(patient_id, target_dir):
 	highlip_mask_path, ball_highlip_mask_path = paths
 
 	row = []
-	row = get_vol_coverage(row, ball_mribl_enh_mask_path, ball_midlip_mask_path, ball_mask_path)
+	row += get_vol_coverage(midlip_mask_path, highlip_mask_path, ct24_tumor_mask_path, ct24_path)
 	
 	#ball_IV = get_avg_ball_intensity(ball_ct24_path, ball_mask_path)
-	core_IV = get_avg_core_intensity(ball_ct24_path, ball_mask_path)
-	row = get_rim_coverage(row, masks.get_mask(ball_mribl_enh_mask_path)[0] + 1, ball_mask_path, 1.5)
-	row = get_rim_coverage(row, hf.nii_load(ball_ct24_path)[0], ball_mask_path, max(core_IV,150))
+	core_IV = get_avg_core_intensity(ball_ct24_path, ball_mask_path, r_frac=.85)
+	#row = get_rim_coverage(row, masks.get_mask(ball_mribl_enh_mask_path)[0] + 1, ball_mask_path, 1.5)
+	row.append(get_rim_coverage(hf.nii_load(ball_ct24_path)[0], ball_mask_path, max(core_IV,150), r_frac=.85))
 
 	"""mask = masks.get_mask(ball_mask_path)[0]
 			
@@ -393,7 +400,7 @@ def get_row_entry(patient_id, target_dir):
 				img = (img*255/img.max()).astype('uint8')
 				row = get_texture_feats(row, img)"""
 
-	row = get_peripheral_coverage(row, ball_ct24_path, ball_mask_path)
+	row += get_peripheral_coverage(ball_ct24_path, ball_mask_path)
 
 	return row
 
@@ -436,41 +443,39 @@ def get_texture_feats(row, img):
 	
 	return row
 
-def get_rim_coverage(row, img, ball_mask_path, threshold=100):
+def get_rim_coverage(img, ball_mask_path, threshold=100, r_frac=.85):
 	ball = masks.get_mask(ball_mask_path)[0]
 	nonzeros = np.argwhere(ball)
+	img[img < 0] = .1
 	
 	R = (nonzeros[:,0].max() - nonzeros[:,0].min()) / 2
 	m = ball.shape[0]//2
 
 	img = img.astype(float)*ball/ball.max()
-	img = [copy.deepcopy(img), copy.deepcopy(img), copy.deepcopy(img)]
+	#img = [copy.deepcopy(img), copy.deepcopy(img), copy.deepcopy(img)]
 	
 	for x in range(ball.shape[0]):
 		for y in range(ball.shape[1]):
 			for z in range(ball.shape[2]):
+				if img[x,y,z] <= 0:
+					continue
+
 				X = m-.5-x
 				Y = m-.5-y
 				Z = m-.5-z
 				r = (X*X+Y*Y+Z*Z)**.5
 
-				if img[0][x,y,z] != 0:
-					if r < R*.9 or r > R:
-						img[0][x,y,z] = 0
+				if r < R*r_frac or r > R:
+					img[x,y,z] = 0
 
-				if img[1][x,y,z] != 0:
-					if r < R*.8 or r > R*.9:
-						img[1][x,y,z] = 0
+				#if img[1][x,y,z] != 0:
+				#	if r < R*.8 or r > R*.9:
+				#		img[1][x,y,z] = 0
 
-				#if img[2][x,y,z] != 0:
-				#	if r < R*.7 or r > R*.8:
-				#		img[2][x,y,z] = 0
+	return (img > threshold).sum() / (img > 0).sum() 
+	#row.append(max( [(img[i] > threshold).sum() / (img[i] > 0).sum() for i in range(2)] ))
 
-	row.append(max( [(img[i] > threshold).sum() / (img[i] > 0).sum() for i in range(2)] ))
-
-	return row
-
-def get_peripheral_coverage(row, ball_ct24_path, ball_mask_path, threshold=100, dR=5):
+def get_peripheral_coverage(ball_ct24_path, ball_mask_path, thresholds=[100,150], dR=.15):
 	ball = masks.get_mask(ball_mask_path)[0]
 	nonzeros = np.argwhere(ball)
 	
@@ -478,6 +483,7 @@ def get_peripheral_coverage(row, ball_ct24_path, ball_mask_path, threshold=100, 
 	m = ball.shape[0]//2
 
 	img = hf.nii_load(ball_ct24_path)[0]
+	img[img < 0] = 1
 	img = img*(1-ball/ball.max())
 	
 	for x in range(ball.shape[0]):
@@ -490,12 +496,30 @@ def get_peripheral_coverage(row, ball_ct24_path, ball_mask_path, threshold=100, 
 				Y = m-.5-y
 				Z = m-.5-z
 				r = (X*X+Y*Y+Z*Z)**.5
-				if r > R+dR:
+				if r > R*(1+dR):
 					img[x,y,z] = 0
 
-	row.append((img > threshold).sum() / (img > 0).sum())
+	return [(img > T).sum() / (img > 0).sum() for T in thresholds]
 
-	return row
+def get_qEASL(patient_id, target_dir):
+	paths = get_paths(patient_id, target_dir)
+
+	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
+	mribl_art_path, mribl_pre_path, mribl_sub_path, \
+	mribl_tumor_mask_path, mribl_liver_mask_path, \
+	mribl_enh_mask_path, mribl_nec_mask_path, \
+	mri30d_art_path, mri30d_pre_path, \
+	mri30d_tumor_mask_path, mri30d_liver_mask_path, \
+	mri30d_enh_mask_path, mri30d_nec_mask_path, \
+	ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
+	ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
+	midlip_mask_path, ball_midlip_mask_path, \
+	highlip_mask_path, ball_highlip_mask_path = paths
+
+	Abl, Dbl = hf.nii_load(mribl_art_path)
+	A30, D30 = hf.nii_load(mri30d_art_path)
+	return (masks.get_mask(mri30d_enh_mask_path, D30, A30.shape)[0].sum() * np.product(D30)) / \
+			(masks.get_mask(mribl_enh_mask_path, Dbl, Abl.shape)[0].sum() * np.product(Dbl)) - 1
 
 ############## Spherical shell analysis
 
@@ -650,6 +674,7 @@ def get_paths(patient_id, target_dir, check_valid=True):
 
 	mribl_art_path = join(target_dir, patient_id, "MRI-BL", "mribl_art.nii.gz")
 	mribl_pre_path = join(target_dir, patient_id, "MRI-BL", "mribl_pre.nii.gz")
+	mribl_sub_path = join(target_dir, patient_id, "MRI-BL", "mribl_sub.nii.gz")
 	mribl_tumor_mask_path = join(mask_dir, "tumor_BL_MRI")
 	mribl_liver_mask_path = join(mask_dir, "mribl_liver")
 	mribl_enh_mask_path = join(mask_dir, "enh_bl")
@@ -663,7 +688,7 @@ def get_paths(patient_id, target_dir, check_valid=True):
 	mri30d_nec_mask_path = join(mask_dir, "nec_30d")
 
 	paths = [mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-			mribl_art_path, mribl_pre_path, \
+			mribl_art_path, mribl_pre_path, mribl_sub_path, \
 			mribl_tumor_mask_path, mribl_liver_mask_path, \
 			mribl_enh_mask_path, mribl_nec_mask_path, \
 			mri30d_art_path, mri30d_pre_path, \
@@ -708,7 +733,7 @@ def seg_lipiodol(patient_id, target_dir):
 	paths = get_paths(patient_id, target_dir, check_valid=False)
 
 	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, \
+	mribl_art_path, mribl_pre_path, mribl_sub_path, \
 	mribl_tumor_mask_path, mribl_liver_mask_path, \
 	mribl_enh_mask_path, mribl_nec_mask_path, \
 	mri30d_art_path, mri30d_pre_path, \
