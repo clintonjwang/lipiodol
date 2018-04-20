@@ -5,6 +5,7 @@ Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.
 class Config:
 	def __init__(self):
 		self.dims = [128,128,64]
+		self.small_dims = [32,32,16]
 		self.nb_channels = 3
 		self.aug_factor = 100
 

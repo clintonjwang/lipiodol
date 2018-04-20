@@ -74,6 +74,48 @@ def build_unet(optimizer='adam', depth=4, base_f=8, nb_segs=2, dropout=.1, lr=.0
 	model.compile(optimizer=Adam(lr=lr), loss='binary_crossentropy', metrics=['accuracy'])
 	return model
 
+def build_unet_multich(optimizer='adam', depth=3, base_f=32, dropout=.1, lr=.001):
+	"""Main class for setting up a CNN. Returns the compiled model."""
+	import importlib
+	importlib.reload(cnnc)
+	importlib.reload(config)
+
+	C = config.Config()
+	levels = []
+
+	img = Input(shape=(*C.small_dims, 4))
+	current_layer = img
+	#current_layer = Reshape((C.dims[0], C.dims[1], C.dims[2], 1))(img)
+	#current_layer = Reshape((1, C.dims[0], C.dims[1], C.dims[2]))(img)
+	
+	for layer_depth in range(depth):
+		layer1 = cnnc.conv_block(current_layer, base_f*2**layer_depth, strides=1)
+		dropl = layers.Dropout(dropout)(layer1)
+		layer2 = cnnc.conv_block(dropl, base_f*2**(layer_depth+1))
+
+		if layer_depth < depth - 1:
+			current_layer = layers.MaxPooling3D((2,2,2))(layer2)
+			levels.append([layer1, layer2, current_layer])
+		else:
+			current_layer = layer2
+			levels.append([layer1, layer2])
+			
+	for layer_depth in range(depth-2, -1, -1):
+		up_convolution = cnnc.up_conv_block(pool_size=(2,2,2), deconvolution=False,
+											n_filters=current_layer._keras_shape[1])(current_layer)
+		concat = layers.Concatenate(axis=-1)([up_convolution, levels[layer_depth][1]])
+		current_layer = cnnc.conv_block(concat, levels[layer_depth][1]._keras_shape[-1]//2)
+		current_layer = layers.Dropout(dropout)(current_layer)
+		current_layer = cnnc.conv_block(current_layer, levels[layer_depth][1]._keras_shape[-1]//2)
+
+	x = layers.Conv3D(2, (1,1,1), activation='softmax')(current_layer)
+	#x = layers.Softmax(-1)(x)
+	#x = layers.Permute((4,1,2,3))(x)
+	model = Model(img, x)
+
+	model.compile(optimizer=Adam(lr=lr), loss='categorical_crossentropy', metrics=['accuracy'])
+	return model
+
 def compute_level_output_shape(n_filters, depth, pool_size, image_shape):
 	"""
 	Each level has a particular output shape based on the number of filters used in that level and the depth or number 
@@ -123,14 +165,48 @@ def get_cnn_data(n=4):
 ### Training Submodules
 ####################################
 
+def train_gen_lip(n=5):
+	C = config.Config()
+
+	lesion_ids = [z[:z.find("_lip")] for z in os.listdir(C.train_data_dir) if z.endswith("_lipdensity.npy")]
+	while True:
+		X_train = np.empty((n,*C.small_dims,4))
+		Y_train = np.empty((n,*C.small_dims,2))
+
+		for ix in range(n):
+			lesion_id = random.choice(lesion_ids)
+			x = np.stack([np.load(join(C.train_data_dir, lesion_id+"_%s.npy" % x)) for x in ["mrbl_art", "mrbl_sub", "mrbl_equ", "mrbl_tumor_mask"]], -1)
+			y = np.load(join(C.train_data_dir, lesion_id+"_lipdensity.npy"))
+
+			angle = random.uniform(-180,180)*math.pi/180
+			x = tr.rotate(x, angle)
+			y = tr.rotate(y.astype(float), angle)
+
+			crops = list(map(int,[random.uniform(0,.1) * x.shape[0], random.uniform(.9,1) * x.shape[0]] + \
+							[random.uniform(0,.1) * x.shape[1], random.uniform(.9,1) * x.shape[1]] + \
+							[random.uniform(0,.1) * x.shape[2], random.uniform(.9,1) * x.shape[2]]))
+			x = x[crops[0]:crops[1], crops[2]:crops[3], crops[4]:crops[5], :]
+			y = y[crops[0]:crops[1], crops[2]:crops[3], crops[4]:crops[5]]
+
+			x,_ = tr.rescale_img(x, C.small_dims)
+			y,_ = tr.rescale_img(y, C.small_dims)
+			y[y>0] = 1
+			y = np_utils.to_categorical(y, 2)
+			#y = np.expand_dims(y,-1)
+
+			X_train[ix] = np.expand_dims(x,0)
+			Y_train[ix] = np.expand_dims(y,0)
+
+		yield X_train, Y_train
+
 def train_gen_mri(n=1):
 	C = config.Config()
 
-	lesion_ids = [z[:z.find("_mri")] for z in os.listdir(C.full_img_dir) if z.endswith("_mri_art.npy")]
+	lesion_ids = [z[:z.find("_mri")] for z in os.listdir(C.train_data_dir) if z.endswith("_mri_art.npy")]
 	while True:
 		lesion_id = random.choice(lesion_ids)
-		x = np.load(join(C.full_img_dir, lesion_id+"_mri_art.npy"))
-		y = np.load(join(C.full_img_dir, lesion_id+"_mr_bl_liver_mask.npy"))
+		x = np.load(join(C.train_data_dir, lesion_id+"_mri_art.npy"))
+		y = np.load(join(C.train_data_dir, lesion_id+"_mr_bl_liver_mask.npy"))
 
 		angle = random.uniform(-20,20)*math.pi/180
 		x = tr.rotate(x, angle)
@@ -150,11 +226,11 @@ def train_gen_mri(n=1):
 def train_gen_ct(n=1):
 	C = config.Config()
 
-	lesion_ids = [z[:z.find("_")] for z in os.listdir(C.full_img_dir) if z.endswith("_ct.npy")]
+	lesion_ids = [z[:z.find("_")] for z in os.listdir(C.train_data_dir) if z.endswith("_ct.npy")]
 	while True:
 		lesion_id = random.choice(lesion_ids)
-		x = np.load(join(C.full_img_dir, lesion_id+"_ct.npy"))
-		y = np.load(join(C.full_img_dir, lesion_id+"_mask.npy"))
+		x = np.load(join(C.train_data_dir, lesion_id+"_ct.npy"))
+		y = np.load(join(C.train_data_dir, lesion_id+"_mask.npy"))
 
 		angle = random.uniform(-10,10)*math.pi/180
 		x = tr.rotate(x, angle)
