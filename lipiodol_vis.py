@@ -1,5 +1,7 @@
 import config
 import copy
+import cv2
+import importlib
 import lipiodol_methods as lm
 import niftiutils.masks as masks
 import niftiutils.helper_fxns as hf
@@ -29,19 +31,7 @@ def write_ranked_imgs(df, target_dir, column, img_type, root_dir, overwrite=Fals
 		save_dir = join(root_dir, "%d_%s" % (row[column]*100, ix))
 		
 		patient_id = ix
-		paths = lm.get_paths(patient_id, target_dir, check_valid=False)
-
-		mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-		mribl_art_path, mribl_pre_path, mribl_sub_path, \
-		mribl_tumor_mask_path, mribl_liver_mask_path, \
-		mribl_enh_mask_path, mribl_nec_mask_path, \
-		mri30d_art_path, mri30d_pre_path, \
-		mri30d_tumor_mask_path, mri30d_liver_mask_path, \
-		mri30d_enh_mask_path, mri30d_nec_mask_path, \
-		ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
-		ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
-		midlip_mask_path, ball_midlip_mask_path, \
-		highlip_mask_path, ball_highlip_mask_path = paths
+		P = lm.get_paths_dict(patient_id, target_dir, check_valid=False)
 		
 		if mask_type is not None:
 			masks.create_dcm_with_mask(eval(img_type), eval(mask_type), save_dir,
@@ -52,6 +42,9 @@ def write_ranked_imgs(df, target_dir, column, img_type, root_dir, overwrite=Fals
 				img = tr.apply_window(img)
 			hf.create_dicom(img, save_dir, overwrite=overwrite)
 
+def check_qEASL_threshold(lesion_id, target_dir):
+	P = lm.get_paths_dict(lesion_id, target_dir)
+	P['mrbl']
 
 ###########################
 ### Draw tumor pngs
@@ -106,36 +99,94 @@ def draw_reg_fig(img_path, mask_path, save_path, color, modality):
 		plt.axis('off')
 		plt.savefig(save_path+"_%d.png" % sl, dpi=100, bbox_inches='tight')
 
-def draw_sub_and_depo(lesion_id, target_dir, save_dir, include_FU=False):
-	paths = lm.get_paths(lesion_id, target_dir)
+def draw_sub_and_depo(lesion_id, target_dir, save_dir, include_FU=False, padding=.3):
+	importlib.reload(lm)
+	P = lm.get_paths_dict(lesion_id, target_dir)
 
-	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, mribl_sub_path, \
-	mribl_tumor_mask_path, mribl_liver_mask_path, \
-	mribl_enh_mask_path, mribl_nec_mask_path, \
-	mri30d_art_path, mri30d_pre_path, \
-	mri30d_tumor_mask_path, mri30d_liver_mask_path, \
-	mri30d_enh_mask_path, mri30d_nec_mask_path, \
-	ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
-	ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
-	midlip_mask_path, ball_midlip_mask_path, \
-	highlip_mask_path, ball_highlip_mask_path = paths
-
-	ART = masks.crop_img_to_mask_vicinity(mribl_art_path, mribl_tumor_mask_path,.1)
-	PRE = masks.crop_img_to_mask_vicinity(mribl_pre_path, mribl_tumor_mask_path,.1)
-	CT = masks.crop_img_to_mask_vicinity(ct24_path, ct24_tumor_mask_path,.1)
+	mod='mrbl'
+	ART = masks.crop_img_to_mask_vicinity(P[mod]['art'], P[mod]['tumor'], padding)
+	PRE = masks.crop_img_to_mask_vicinity(P[mod]['pre'], P[mod]['tumor'], padding)
+	CT = masks.crop_img_to_mask_vicinity(P['ct24']['img'], P['ct24']['tumor'], padding)
 	CT = tr.apply_window(CT)
 
 	if include_FU:
-		art=masks.crop_img_to_mask_vicinity(mri30d_art_path, mri30d_tumor_mask_path,.1)
-		pre=masks.crop_img_to_mask_vicinity(mri30d_pre_path, mri30d_tumor_mask_path,.1)
+		mod='mr30'
+		art = masks.crop_img_to_mask_vicinity(P[mod]['art'], P[mod]['tumor'], padding)
+		pre = masks.crop_img_to_mask_vicinity(P[mod]['pre'], P[mod]['tumor'], padding)
 		hf.draw_multi_slices([ART-PRE, CT, art-pre], save_path=join(save_dir, lesion_id), width=3, dpi=400)
 	else:
 		hf.draw_multi_slices([ART-PRE, CT], save_path=join(save_dir, lesion_id), width=4)
 
+def draw_mrseq_with_mask(lesion_id, target_dir, save_dir, mod='mrbl'):
+	importlib.reload(masks)
+	P = lm.get_paths_dict(lesion_id, target_dir)
+
+	out_img = []
+	art,C = masks.crop_img_to_mask_vicinity(P[mod]['art'], P[mod]['tumor'], .5, return_crops=True)
+	pre = masks.crop_img_to_mask_vicinity(P[mod]['pre'], P[mod]['tumor'], .5)
+	equ = masks.crop_img_to_mask_vicinity(P[mod]['equ'], P[mod]['tumor'], .5)
+	sub = art - pre
+
+	sl = art.shape[-1]//2
+
+	I,D = hf.nii_load(P[mod]['art'])
+	if exists(P[mod]['enh'] + ".off"):
+		mask = masks.get_mask(P[mod]['enh'], D, I.shape)[0]
+		mask = hf.crop_nonzero(mask, C)[0]
+	else:
+		mask = np.zeros(art.shape)
+
+	tumor_mask = masks.get_mask(P[mod]['tumor'], D, I.shape)[0]
+	tumor_mask = hf.crop_nonzero(tumor_mask, C)[0]
+	tumor_mask = (tumor_mask/tumor_mask.max()*255).astype('uint8')
+	_,thresh = cv2.threshold(tumor_mask[:,:,sl],127,255,0)
+	contours = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)[1]
+	tumor_cont = cv2.drawContours(np.zeros((art.shape[0],art.shape[1],3),'uint8'), contours, -1, (0,255,0), 1)
+
+	sub_w_mask = sub[...,sl] - sub[...,sl].min()
+	sub_w_mask = (sub_w_mask/sub_w_mask.max()*255).astype('uint8')
+	sub_w_mask = sub_w_mask * (tumor_cont[...,1] == 0)
+
+	if mask[...,sl].sum() == 0:
+		#sub_w_mask = sub[...,sl]
+		sub_w_mask = np.stack([sub_w_mask, sub_w_mask, sub_w_mask], -1)
+		sub_w_mask += tumor_cont
+	else:
+		mask = (mask/mask.max()*255).astype('uint8')
+		_,thresh = cv2.threshold(mask[:,:,sl],127,255,0)
+		contours = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)[1]
+		cont = cv2.drawContours(np.zeros((art.shape[0],art.shape[1],3),'uint8'), contours, -1, (255,0,0), 1)
+		sub_w_mask = sub_w_mask * (cont[...,0] == 0)
+
+		tumor_cont[cont[...,0] != 0] = 0
+		sub_w_mask = np.stack([sub_w_mask, sub_w_mask, sub_w_mask], -1)
+		sub_w_mask += tumor_cont
+		sub_w_mask += cont
+
+	out_img.append(pre[...,sl])
+	out_img.append(art[...,sl])
+	out_img.append(equ[...,sl])
+	out_img.append(sub[...,sl])
+	out_img.append(np.transpose(sub_w_mask, (1,0,2)))
+	out_img.append(mask[...,sl])
+	#img = np.transpose(img, (1,0,2))
+	#mask = np.transpose(mask, (1,0,2))
+
+	for ix in range(4):
+		plt.subplot(231+ix)
+		hf._plot_without_axes(out_img[ix])
+	plt.subplot(231+4)
+	fig = plt.imshow(out_img[4])
+	fig.axes.get_xaxis().set_visible(False)
+	fig.axes.get_yaxis().set_visible(False)
+	plt.subplot(231+5)
+	hf._plot_without_axes(out_img[5])
+	plt.subplots_adjust(wspace=0, hspace=0)
+	plt.savefig(join(save_dir, "%s_%s.png" % (lesion_id, mod)), dpi=150, bbox_inches='tight')
+
 
 ###########################
-### Draw figures
+### Draw figure
 ###########################
 
 def check_feature(lesion_id, df, column, legend_names, criteria_pos, criteria_neg=None, restriction=None):

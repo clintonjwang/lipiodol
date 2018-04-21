@@ -22,169 +22,156 @@ from skimage.morphology import ball, label
 ###########################
 
 def check_multi_tumors(lesion_id, target_dir):
-	paths = get_paths(lesion_id, target_dir, check_valid=False)
-
-	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, mribl_sub_path, \
-	mribl_tumor_mask_path, mribl_liver_mask_path, \
-	mribl_enh_mask_path, mribl_nec_mask_path, \
-	mri30d_art_path, mri30d_pre_path, \
-	mri30d_tumor_mask_path, mri30d_liver_mask_path, \
-	mri30d_enh_mask_path, mri30d_nec_mask_path, \
-	ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
-	ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
-	midlip_mask_path, ball_midlip_mask_path, \
-	highlip_mask_path, ball_highlip_mask_path = paths
+	P = get_paths_dict(lesion_id, target_dir)
 	
-	mask_path = mribl_tumor_mask_path
+	mask_path = P['mrbl']['tumor']
 	tumor_vols = masks.get_mask_disjoint_vols(mask_path)
 	if len(tumor_vols) > 1 and tumor_vols[0] < 10*tumor_vols[1]:
 		print(lesion_id, "has multiple tumors on BL MR")
 		
-	mask_path = mri30d_tumor_mask_path
+	mask_path = P['mr30']['tumor']
 	tumor_vols = masks.get_mask_disjoint_vols(mask_path)
 	if len(tumor_vols) > 1 and tumor_vols[0] < 10*tumor_vols[1]:
 		print(lesion_id, "has multiple tumors on 30d MR")
 		
-	mask_path = ct24_tumor_mask_path
+	mask_path = P['ct24']['tumor']
 	tumor_vols = masks.get_mask_disjoint_vols(mask_path)
 	if len(tumor_vols) > 1 and tumor_vols[0] < 10*tumor_vols[1]:
 		print(lesion_id, "has multiple tumors on 24h CT")
 
 def restrict_masks(lesion_id, target_dir):
-	paths = get_paths(lesion_id, target_dir)
-
-	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, mribl_sub_path, \
-	mribl_tumor_mask_path, mribl_liver_mask_path, \
-	mribl_enh_mask_path, mribl_nec_mask_path, \
-	mri30d_art_path, mri30d_pre_path, \
-	mri30d_tumor_mask_path, mri30d_liver_mask_path, \
-	mri30d_enh_mask_path, mri30d_nec_mask_path, \
-	ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
-	ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
-	midlip_mask_path, ball_midlip_mask_path, \
-	highlip_mask_path, ball_highlip_mask_path = paths
+	P = get_paths_dict(lesion_id, target_dir)
 	
-	mask_path = mribl_tumor_mask_path
+	mask_path = P['mrbl']['tumor']
 	tumor_vols = masks.get_mask_disjoint_vols(mask_path)
 	if len(tumor_vols) > 1:# and tumor_vols[0] < 10*tumor_vols[1]:
 		for fn in glob.glob(mask_path+"*"):
 			shutil.copy(fn, join(dirname(fn),"ZZbackup"+basename(fn)))
-		masks.restrict_mask_to_largest(mask_path, img_path=mribl_art_path)
+		masks.restrict_mask_to_largest(mask_path, img_path=P['mrbl']['art'])
 		
-	mask_path = mri30d_tumor_mask_path
+	mask_path = P['mr30']['tumor']
 	tumor_vols = masks.get_mask_disjoint_vols(mask_path)
 	if len(tumor_vols) > 1:
 		for fn in glob.glob(mask_path+"*"):
 			shutil.copy(fn, join(dirname(fn),"ZZbackup"+basename(fn)))
-		masks.restrict_mask_to_largest(mask_path, img_path=mri30d_art_path)
+		masks.restrict_mask_to_largest(mask_path, img_path=P['mr30']['art'])
 		
-	mask_path = ct24_tumor_mask_path
+	mask_path = P['ct24']['tumor']
 	tumor_vols = masks.get_mask_disjoint_vols(mask_path)
 	if len(tumor_vols) > 1:
 		for fn in glob.glob(mask_path+"*"):
 			shutil.copy(fn, join(dirname(fn),"ZZbackup"+basename(fn)))
-		masks.restrict_mask_to_largest(mask_path, img_path=ct24_path)
+		masks.restrict_mask_to_largest(mask_path, img_path=P['ct24']['img'])
 
 def spherize(lesion_id, target_dir):
 	import importlib
 	importlib.reload(reg)
 	def ball_ct_batch():
-		_ = reg.transform_region(ct24_path, xform_path, crops, pads, [1.]*3, ball_ct24_path,
-								 mask_scale=mask_scale, intermed_shape=intermed_shape)
-		try:
-			_ = reg.transform_mask(highlip_mask_path, ct24_path, xform_path,
-								 crops, pads, [1.]*3, ball_highlip_mask_path, mask_scale=mask_scale, intermed_shape=intermed_shape)
-		except:
-			print(ball_highlip_mask_path, "is empty")
-			os.remove(ball_highlip_mask_path+".ics")
-			os.remove(ball_highlip_mask_path+".ids")
-		_ = reg.transform_mask(midlip_mask_path, ct24_path, xform_path,
-							 crops, pads, [1.]*3, ball_midlip_mask_path, mask_scale=mask_scale, intermed_shape=intermed_shape)
-		
-	def ball_mrbl_batch():
-		_ = reg.transform_region(mribl_art_path, xform_path, crops, pads, [1.]*3, ball_mribl_path, intermed_shape=intermed_shape)
-		_ = reg.transform_mask(mribl_enh_mask_path, mribl_art_path, xform_path,
-							 crops, pads, [1.]*3, ball_mribl_enh_mask_path, intermed_shape=intermed_shape)
-		
-	def ball_mr30_batch():
-		_ = reg.transform_region(mri30d_art_path, xform_path, crops, pads, [1.]*3, ball_mri30d_path, intermed_shape=intermed_shape)
-		_ = reg.transform_mask(mri30d_enh_mask_path, mri30d_art_path, xform_path,
-							 crops, pads, [1.]*3, ball_mri30d_enh_mask_path, intermed_shape=intermed_shape)
+		_ = reg.transform_region(P['ct24']['img'], xform_path, crops, pads, [1.]*3, P['ball']['ct24']['img'],
+								 mask_scale=mask_scale, intermed_shape=ball_shape)
 
-	paths = get_paths(lesion_id, target_dir)
+		if exists(P['ct24']['midlip']+".off"):
+			_ = reg.transform_mask(P['ct24']['midlip'], P['ct24']['img'], xform_path,
+								 crops, pads, [1.]*3, P['ball']['ct24']['midlip'], mask_scale=mask_scale, intermed_shape=ball_shape)
+			if exists(P['ct24']['highlip']+".off"):
+				_ = reg.transform_mask(P['ct24']['highlip'], P['ct24']['img'], xform_path,
+									 crops, pads, [1.]*3, P['ball']['ct24']['highlip'], mask_scale=mask_scale, intermed_shape=ball_shape)
+
+	def ball_mr_batch(mod):
+		_ = reg.transform_region(P[mod]['art'], xform_path, crops, pads, [1.]*3, P['ball'][mod]['art'], intermed_shape=ball_shape)
+		
+		if exists(P['ball'][mod]['enh']+".off"):
+			_ = reg.transform_mask(P[mod]['enh'], P[mod]['art'], xform_path,
+								 crops, pads, [1.]*3, P['ball'][mod]['enh'], intermed_shape=ball_shape)
+
+	P = get_paths_dict(lesion_id, target_dir)
 	master_df = pd.read_excel(r"D:\Lipiodol\MASTER SOPHIE.xlsx", "Lesions analyzed", index_col="Lesion_ID")
-
-	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, mribl_sub_path, \
-	mribl_tumor_mask_path, mribl_liver_mask_path, \
-	mribl_enh_mask_path, mribl_nec_mask_path, \
-	mri30d_art_path, mri30d_pre_path, \
-	mri30d_tumor_mask_path, mri30d_liver_mask_path, \
-	mri30d_enh_mask_path, mri30d_nec_mask_path, \
-	ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
-	ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
-	midlip_mask_path, ball_midlip_mask_path, \
-	highlip_mask_path, ball_highlip_mask_path = paths
 	
-	if master_df.loc[lesion_id, "0=well delineated, 1=infiltrative"] == 0:
-		ctmask,ctd = masks.get_mask(ct24_tumor_mask_path, img_path=ct24_path)
-		mrmask,mrd = masks.get_mask(mribl_tumor_mask_path, img_path=mribl_art_path)
-		ctmask = hf.crop_nonzero(ctmask)[0]
-		mrmask = hf.crop_nonzero(mrmask)[0]
-		#mask_scale = (ctmask.sum()*np.product(ctd) / (mrmask.sum()*np.product(mrd)))**(1/6)
-		mask_scale = 1.
-		CT = np.max([ctmask.shape[i] * ctd[i] / mask_scale for i in range(3)])
-		MRBL = np.max([mrmask.shape[i] * mrd[i] for i in range(3)])
-		
-		mrmask,mrd = masks.get_mask(mri30d_tumor_mask_path, img_path=mri30d_art_path)
-		mrmask = hf.crop_nonzero(mrmask)[0]
-		MR30 = np.max([mrmask.shape[i] * mrd[i] for i in range(3)])
-		
-		if CT > MRBL and CT > MR30:
-			xform_path, crops, pads = reg.get_mask_Tx_shape(ct24_path, ct24_tumor_mask_path, mask_scale, mask_path=ball_mask_path)
-			intermed_shape = masks.get_mask(ball_mask_path)[0].shape
-			ball_ct_batch()
-
-			xform_path, crops, pads = reg.get_mask_Tx_shape(mribl_art_path, mribl_tumor_mask_path, ball_mask_path=ball_mask_path)
-			ball_mrbl_batch()
-
-			xform_path, crops, pads = reg.get_mask_Tx_shape(mri30d_art_path, mri30d_tumor_mask_path, ball_mask_path=ball_mask_path)
-			ball_mr30_batch()
-			
-		elif MRBL > MR30:
-			xform_path, crops, pads = reg.get_mask_Tx_shape(mribl_art_path,
-												mribl_tumor_mask_path, mask_path=ball_mask_path)
-			intermed_shape = masks.get_mask(ball_mask_path)[0].shape
-			ball_mrbl_batch()
-			
-			xform_path, crops, pads = reg.get_mask_Tx_shape(ct24_path, ct24_tumor_mask_path,
-														mask_scale, ball_mask_path=ball_mask_path)
-			ball_ct_batch()
-
-			xform_path, crops, pads = reg.get_mask_Tx_shape(mri30d_art_path, mri30d_tumor_mask_path, ball_mask_path=ball_mask_path)
-			ball_mr30_batch()
-			
-		else:
-			xform_path, crops, pads = reg.get_mask_Tx_shape(mri30d_art_path, mri30d_tumor_mask_path, mask_path=ball_mask_path)
-			intermed_shape = masks.get_mask(ball_mask_path)[0].shape
-			ball_mr30_batch()
-			
-			xform_path, crops, pads = reg.get_mask_Tx_shape(mribl_art_path, mribl_tumor_mask_path, ball_mask_path=ball_mask_path)
-			ball_mrbl_batch()
-			
-			xform_path, crops, pads = reg.get_mask_Tx_shape(ct24_path, ct24_tumor_mask_path,
-														mask_scale, ball_mask_path=ball_mask_path)
-			ball_ct_batch()
-
-	else:
-		xform_path, crops, pads = reg.get_mask_Tx(mri30d_art_path, mri30d_tumor_mask_path, ct24_path, ct24_tumor_mask_path)
-		intermed_shape = masks.get_mask(ball_mask_path)[0].shape
+	ctmask,ctd = masks.get_mask(P['ct24']['tumor'], img_path=P['ct24']['img'])
+	mrmask,mrd = masks.get_mask(P['mrbl']['tumor'], img_path=P['mrbl']['art'])
+	ctmask = hf.crop_nonzero(ctmask)[0]
+	mrmask = hf.crop_nonzero(mrmask)[0]
+	CT = np.max([ctmask.shape[i] * ctd[i] for i in range(3)])
+	MRBL = np.max([mrmask.shape[i] * mrd[i] for i in range(3)])
+	
+	mrmask,mrd = masks.get_mask(P['mr30']['tumor'], img_path=P['mr30']['art'])
+	mrmask = hf.crop_nonzero(mrmask)[0]
+	MR30 = np.max([mrmask.shape[i] * mrd[i] for i in range(3)])
+	
+	if CT > MRBL and CT > MR30:
+		xform_path, crops, pads = reg.get_mask_Tx_shape(P['ct24']['img'], P['ct24']['tumor'], mask_path=P['ball']['mask'])
+		ball_shape = masks.get_mask(P['ball']['mask'])[0].shape
 		ball_ct_batch()
 
-		xform_path, crops, pads = reg.get_mask_Tx_shape(mri30d_art_path, mri30d_tumor_mask_path, mribl_art_path, mribl_tumor_mask_path)
-		ball_mrbl_batch()
+		xform_path, crops, pads = reg.get_mask_Tx_shape(P['mrbl']['art'], P['mrbl']['tumor'], ball_mask_path=P['ball']['mask'])
+		ball_mr_batch('mrbl')
+
+		xform_path, crops, pads = reg.get_mask_Tx_shape(P['mr30']['art'], P['mr30']['tumor'], ball_mask_path=P['ball']['mask'])
+		ball_mr_batch('mr30')
+		
+	elif MRBL > MR30:
+		xform_path, crops, pads = reg.get_mask_Tx_shape(P['mrbl']['art'],
+											P['mrbl']['tumor'], mask_path=P['ball']['mask'])
+		ball_shape = masks.get_mask(P['ball']['mask'])[0].shape
+		ball_mr_batch('mrbl')
+		
+		xform_path, crops, pads = reg.get_mask_Tx_shape(P['ct24']['img'], P['ct24']['tumor'], ball_mask_path=P['ball']['mask'])
+		ball_ct_batch()
+
+		xform_path, crops, pads = reg.get_mask_Tx_shape(P['mr30']['art'], P['mr30']['tumor'], ball_mask_path=P['ball']['mask'])
+		ball_mr_batch('mr30')
+		
+	else:
+		xform_path, crops, pads = reg.get_mask_Tx_shape(P['mr30']['art'], P['mr30']['tumor'], mask_path=P['ball']['mask'])
+		ball_shape = masks.get_mask(P['ball']['mask'])[0].shape
+		ball_mr_batch('mr30')
+		
+		xform_path, crops, pads = reg.get_mask_Tx_shape(P['mrbl']['art'], P['mrbl']['tumor'], ball_mask_path=P['ball']['mask'])
+		ball_mr_batch('mrbl')
+		
+		xform_path, crops, pads = reg.get_mask_Tx_shape(P['ct24']['img'], P['ct24']['tumor'], ball_mask_path=P['ball']['mask'])
+		ball_ct_batch()
+
+def reg_to_modality(lesion_id, target_dir):
+	import importlib
+	importlib.reload(reg)
+
+	P = get_paths_dict(lesion_id, target_dir)
+	master_df = pd.read_excel(r"D:\Lipiodol\MASTER SOPHIE.xlsx", "Lesions analyzed", index_col="Lesion_ID")
+	
+	ctmask,ctd = masks.get_mask(P['ct24']['tumor'], img_path=P['ct24']['img'])
+	mrmask,mrd = masks.get_mask(P['mrbl']['tumor'], img_path=P['mrbl']['art'])
+	ctmask = hf.crop_nonzero(ctmask)[0]
+	mrmask = hf.crop_nonzero(mrmask)[0]
+	CT = np.max([ctmask.shape[i] * ctd[i] for i in range(3)])
+	MRBL = np.max([mrmask.shape[i] * mrd[i] for i in range(3)])
+	
+	mrmask,mrd = masks.get_mask(P['mr30']['tumor'], img_path=P['mr30']['art'])
+	mrmask = hf.crop_nonzero(mrmask)[0]
+	MR30 = np.max([mrmask.shape[i] * mrd[i] for i in range(3)])
+	
+	xform_path, crops, pads = reg.get_mask_Tx_shape(P['mr30']['art'], P['mr30']['tumor'], mask_path=P['mr30Tx']['mask'])
+	mr30Tx_shape = masks.get_mask(P['mr30Tx']['mask'])[0].shape
+	mr30Tx_mr_batch('mr30')
+	
+	xform_path, crops, pads = reg.get_mask_Tx_shape(P['mrbl']['art'], P['mrbl']['tumor'], mr30Tx_mask_path=P['mr30Tx']['mask'])
+	_ = reg.transform_region(P[mod]['art'], xform_path, crops, pads, [1.]*3, P['mr30Tx'][mod]['art'], intermed_shape=mr30Tx_shape)
+	
+	if exists(P['mr30Tx'][mod]['enh']+".off"):
+		_ = reg.transform_mask(P[mod]['enh'], P[mod]['art'], xform_path,
+							 crops, pads, [1.]*3, P['mr30Tx'][mod]['enh'], intermed_shape=mr30Tx_shape)
+	
+	xform_path, crops, pads = reg.get_mask_Tx_shape(P['ct24']['img'], P['ct24']['tumor'], mr30Tx_mask_path=P['mr30Tx']['mask'])
+
+	_ = reg.transform_region(P['ct24']['img'], xform_path, crops, pads, [1.]*3, P['mr30Tx']['ct24']['img'],
+							 mask_scale=mask_scale, intermed_shape=mr30Tx_shape)
+
+	if exists(P['ct24']['midlip']+".off"):
+		_ = reg.transform_mask(P['ct24']['midlip'], P['ct24']['img'], xform_path,
+							 crops, pads, [1.]*3, P['mr30Tx']['ct24']['midlip'], mask_scale=mask_scale, intermed_shape=mr30Tx_shape)
+		if exists(P['ct24']['highlip']+".off"):
+			_ = reg.transform_mask(P['ct24']['highlip'], P['ct24']['img'], xform_path,
+								 crops, pads, [1.]*3, P['mr30Tx']['ct24']['highlip'], mask_scale=mask_scale, intermed_shape=mr30Tx_shape)
 
 
 ###########################
@@ -192,30 +179,18 @@ def spherize(lesion_id, target_dir):
 ###########################
 
 def enhancing_to_nec(lesion_id, target_dir, liplvls=[0,100,150,200]):
-	paths = get_paths(lesion_id, target_dir)
+	P = get_paths_dict(lesion_id, target_dir)
 
-	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, mribl_sub_path, \
-	mribl_tumor_mask_path, mribl_liver_mask_path, \
-	mribl_enh_mask_path, mribl_nec_mask_path, \
-	mri30d_art_path, mri30d_pre_path, \
-	mri30d_tumor_mask_path, mri30d_liver_mask_path, \
-	mri30d_enh_mask_path, mri30d_nec_mask_path, \
-	ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
-	ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
-	midlip_mask_path, ball_midlip_mask_path, \
-	highlip_mask_path, ball_highlip_mask_path = paths
-
-	mrbl_enh = masks.get_mask(ball_mribl_enh_mask_path)[0]
+	mrbl_enh = masks.get_mask(P['ball']['mrbl']['enh'])[0]
 	mrbl_enh = mrbl_enh/mrbl_enh.max()
-	mr30d_enh = masks.get_mask(ball_mri30d_enh_mask_path)[0]
+	mr30d_enh = masks.get_mask(P['ball']['mr30']['enh'])[0]
 	mr30d_enh = mr30d_enh/mr30d_enh.max()
-	mrbl_nec = masks.difference(ball_mask_path, ball_mribl_enh_mask_path)
+	mrbl_nec = masks.difference(P['ball']['mask'], P['ball']['mrbl']['enh'])
 	mrbl_nec = mrbl_nec/mrbl_nec.max()
-	mr30d_nec = masks.difference(ball_mask_path, ball_mri30d_enh_mask_path)
+	mr30d_nec = masks.difference(P['ball']['mask'], P['ball']['mr30']['enh'])
 	mr30d_nec = mr30d_nec/mr30d_nec.max()
 	
-	ct24 = hf.nii_load(ball_ct24_path)[0]
+	ct24 = hf.nii_load(P['ball']['ct24']['img'])[0]
 	
 	resp = mrbl_enh * mr30d_nec
 	unresp = mrbl_enh * mr30d_enh
@@ -236,25 +211,25 @@ def lip_to_response(lesion_id, target_dir, liplvls, exclude_small=True):
 	paths = get_paths(lesion_id, target_dir, check_valid=False)
 	L = liplvls + [10000]
 
-	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, mribl_sub_path, \
-	mribl_tumor_mask_path, mribl_liver_mask_path, \
-	mribl_enh_mask_path, mribl_nec_mask_path, \
-	mri30d_art_path, mri30d_pre_path, \
-	mri30d_tumor_mask_path, mri30d_liver_mask_path, \
-	mri30d_enh_mask_path, mri30d_nec_mask_path, \
-	ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
-	ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
+	mask_dir, nii_dir, P['ct24']['img'], P['ct24']['tumor'], ct24_liver_mask_path, \
+	P['mrbl']['art'], P['mrbl']['pre'], mribl_sub_path, \
+	P['mrbl']['tumor'], mribl_liver_mask_path, \
+	P['mrbl']['enh'], mribl_nec_mask_path, \
+	P['mr30']['art'], mri30d_pre_path, \
+	P['mr30']['tumor'], mri30d_liver_mask_path, \
+	P['mr30']['enh'], mri30d_nec_mask_path, \
+	ball_P['ct24']['img'], ball_mribl_path, ball_mri30d_path, \
+	ball_mask_path, ball_P['mrbl']['enh'], ball_P['mr30']['enh'], \
 	midlip_mask_path, ball_midlip_mask_path, \
 	highlip_mask_path, ball_highlip_mask_path = paths
 
-	mrbl_enh = masks.get_mask(ball_mribl_enh_mask_path)[0]
+	mrbl_enh = masks.get_mask(ball_P['mrbl']['enh'])[0]
 	mrbl_enh = mrbl_enh/mrbl_enh.max()
 
-	mr30d_nec = masks.difference(ball_mask_path, ball_mri30d_enh_mask_path)
+	mr30d_nec = masks.difference(ball_mask_path, ball_P['mr30']['enh'])
 	mr30d_nec = mr30d_nec/mr30d_nec.max()
 
-	ct24 = hf.nii_load(ball_ct24_path)[0]
+	ct24 = hf.nii_load(ball_P['ct24']['img'])[0]
 	resp = mrbl_enh * mr30d_nec
 
 	enh_ct = ct24 * mrbl_enh
@@ -275,26 +250,26 @@ def vascular_to_deposition(lesion_id, target_dir, liplvls, exclude_small=True):
 	paths = get_paths(lesion_id, target_dir, check_valid=False)
 	L = liplvls + [10000]
 
-	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, mribl_sub_path, \
-	mribl_tumor_mask_path, mribl_liver_mask_path, \
-	mribl_enh_mask_path, mribl_nec_mask_path, \
-	mri30d_art_path, mri30d_pre_path, \
-	mri30d_tumor_mask_path, mri30d_liver_mask_path, \
-	mri30d_enh_mask_path, mri30d_nec_mask_path, \
-	ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
-	ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
+	mask_dir, nii_dir, P['ct24']['img'], P['ct24']['tumor'], ct24_liver_mask_path, \
+	P['mrbl']['art'], P['mrbl']['pre'], mribl_sub_path, \
+	P['mrbl']['tumor'], mribl_liver_mask_path, \
+	P['mrbl']['enh'], mribl_nec_mask_path, \
+	P['mr30']['art'], mri30d_pre_path, \
+	P['mr30']['tumor'], mri30d_liver_mask_path, \
+	P['mr30']['enh'], mri30d_nec_mask_path, \
+	ball_P['ct24']['img'], ball_mribl_path, ball_mri30d_path, \
+	ball_mask_path, ball_P['mrbl']['enh'], ball_P['mr30']['enh'], \
 	midlip_mask_path, ball_midlip_mask_path, \
 	highlip_mask_path, ball_highlip_mask_path = paths
 
-	mrbl_enh = masks.get_mask(ball_mribl_enh_mask_path)[0]
+	mrbl_enh = masks.get_mask(ball_P['mrbl']['enh'])[0]
 	mrbl_enh = mrbl_enh/mrbl_enh.max()
 	ball = masks.get_mask(ball_mask_path)[0]
 	ball = ball/ball.max()
 	mrbl_nec = ball-mrbl_enh
 	mrbl_nec[mrbl_nec < 0] = 0
 
-	ct24 = hf.nii_load(ball_ct24_path)[0]
+	ct24 = hf.nii_load(ball_P['ct24']['img'])[0]
 	ct24[ct24 <= 0] = 1
 	enh_ct = ct24 * mrbl_enh
 	nec_ct = ct24 * mrbl_nec
@@ -319,20 +294,20 @@ def vascular_to_deposition_inverse(lesion_id, target_dir, liplvls, exclude_small
 	paths = get_paths(lesion_id, target_dir, check_valid=False)
 	L = liplvls + [10000]
 
-	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, mribl_sub_path, \
-	mribl_tumor_mask_path, mribl_liver_mask_path, \
-	mribl_enh_mask_path, mribl_nec_mask_path, \
-	mri30d_art_path, mri30d_pre_path, \
-	mri30d_tumor_mask_path, mri30d_liver_mask_path, \
-	mri30d_enh_mask_path, mri30d_nec_mask_path, \
-	ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
-	ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
+	mask_dir, nii_dir, P['ct24']['img'], P['ct24']['tumor'], ct24_liver_mask_path, \
+	P['mrbl']['art'], P['mrbl']['pre'], mribl_sub_path, \
+	P['mrbl']['tumor'], mribl_liver_mask_path, \
+	P['mrbl']['enh'], mribl_nec_mask_path, \
+	P['mr30']['art'], mri30d_pre_path, \
+	P['mr30']['tumor'], mri30d_liver_mask_path, \
+	P['mr30']['enh'], mri30d_nec_mask_path, \
+	ball_P['ct24']['img'], ball_mribl_path, ball_mri30d_path, \
+	ball_mask_path, ball_P['mrbl']['enh'], ball_P['mr30']['enh'], \
 	midlip_mask_path, ball_midlip_mask_path, \
 	highlip_mask_path, ball_highlip_mask_path = paths
 
-	mrbl_enh = masks.get_mask(ball_mribl_enh_mask_path)[0]
-	ct24 = hf.nii_load(ball_ct24_path)[0]
+	mrbl_enh = masks.get_mask(ball_P['mrbl']['enh'])[0]
+	ct24 = hf.nii_load(ball_P['ct24']['img'])[0]
 	#lips = [np.sum([(ct24 * mrbl_enh/mrbl_enh.max()) > liplvls[i]]) / np.sum([ct24 > liplvls[i]]) for i in range(len(liplvls))]
 	enh_ct = ct24 * mrbl_enh/mrbl_enh.max()
 	ball = masks.get_mask(ball_mask_path)[0]
@@ -348,22 +323,23 @@ def vascular_to_deposition_inverse(lesion_id, target_dir, liplvls, exclude_small
 
 	return lips
 
-def get_vol_coverage(midlip_mask_path, highlip_mask_path, ct24_tumor_mask_path, ct24_path):
-	#tumor,_ = masks.get_mask(mribl_tumor_mask_path)
+def get_vol_coverage(lesion_id, target_dir):
+	#tumor,_ = masks.get_mask(P['mrbl']['tumor'])
 	#tumor = tumor/tumor.max()
-	#mask,_ = masks.get_mask(mribl_enh_mask_path)
+	#mask,_ = masks.get_mask(P['mrbl']['enh'])
 	#mask = mask/mask.max()
 	#row.append(mask.sum()/tumor.sum()) #enhancing_vol%
 	ret = []
+	P = get_paths_dict(lesion_id, target_dir)
 
-	img, D = hf.nii_load(ct24_path)
-	tumor,_ = masks.get_mask(ct24_tumor_mask_path, D, img.shape)
+	img, D = hf.nii_load(P['ct24']['img'])
+	tumor,_ = masks.get_mask(P['ct24']['tumor'], D, img.shape)
 	tumor = tumor/tumor.max()
-	mask,_ = masks.get_mask(midlip_mask_path, D, img.shape)
+	mask,_ = masks.get_mask(P['ct24']['midlip'], D, img.shape)
 	mask = mask/mask.max()
 	ret.append((mask*tumor).sum()/tumor.sum()) #lipcoverage_vol%
 
-	mask,_ = masks.get_mask(highlip_mask_path, D, img.shape)
+	mask,_ = masks.get_mask(P['ct24']['highlip'], D, img.shape)
 	mask = mask/mask.max()
 	ret.append((mask*tumor).sum()/tumor.sum()) #high_lip
 
@@ -376,25 +352,25 @@ def get_row_entry(lesion_id, target_dir):
 
 	paths = get_paths(lesion_id, target_dir)
 
-	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, mribl_sub_path, \
-	mribl_tumor_mask_path, mribl_liver_mask_path, \
-	mribl_enh_mask_path, mribl_nec_mask_path, \
-	mri30d_art_path, mri30d_pre_path, \
-	mri30d_tumor_mask_path, mri30d_liver_mask_path, \
-	mri30d_enh_mask_path, mri30d_nec_mask_path, \
-	ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
-	ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
+	mask_dir, nii_dir, P['ct24']['img'], P['ct24']['tumor'], ct24_liver_mask_path, \
+	P['mrbl']['art'], P['mrbl']['pre'], mribl_sub_path, \
+	P['mrbl']['tumor'], mribl_liver_mask_path, \
+	P['mrbl']['enh'], mribl_nec_mask_path, \
+	P['mr30']['art'], mri30d_pre_path, \
+	P['mr30']['tumor'], mri30d_liver_mask_path, \
+	P['mr30']['enh'], mri30d_nec_mask_path, \
+	ball_P['ct24']['img'], ball_mribl_path, ball_mri30d_path, \
+	ball_mask_path, ball_P['mrbl']['enh'], ball_P['mr30']['enh'], \
 	midlip_mask_path, ball_midlip_mask_path, \
 	highlip_mask_path, ball_highlip_mask_path = paths
 
 	row = []
-	row += get_vol_coverage(midlip_mask_path, highlip_mask_path, ct24_tumor_mask_path, ct24_path)
+	row += get_vol_coverage(midlip_mask_path, highlip_mask_path, P['ct24']['tumor'], P['ct24']['img'])
 	
-	#ball_IV = get_avg_ball_intensity(ball_ct24_path, ball_mask_path)
-	core_IV = get_avg_core_intensity(ball_ct24_path, ball_mask_path, r_frac=.85)
-	#row = get_rim_coverage(row, masks.get_mask(ball_mribl_enh_mask_path)[0] + 1, ball_mask_path, 1.5)
-	row.append(get_rim_coverage(hf.nii_load(ball_ct24_path)[0], ball_mask_path, max(core_IV,150), r_frac=.85))
+	#ball_IV = get_avg_ball_intensity(ball_P['ct24']['img'], ball_mask_path)
+	core_IV = get_avg_core_intensity(ball_P['ct24']['img'], ball_mask_path, r_frac=.85)
+	#row = get_rim_coverage(row, masks.get_mask(ball_P['mrbl']['enh'])[0] + 1, ball_mask_path, 1.5)
+	row.append(get_rim_coverage(hf.nii_load(ball_P['ct24']['img'])[0], ball_mask_path, max(core_IV,150), r_frac=.85))
 
 	"""mask = masks.get_mask(ball_mask_path)[0]
 			
@@ -405,17 +381,16 @@ def get_row_entry(lesion_id, target_dir):
 				img = (img*255/img.max()).astype('uint8')
 				row = get_texture_feats(row, img)
 			
-				img = hf.nii_load(ball_ct24_path)[0]
+				img = hf.nii_load(ball_P['ct24']['img'])[0]
 				img = img*mask/mask.max()
 				img = tr.apply_window(img, limits=[0,300])
 				img = hf.crop_nonzero(img)[0]
 				img = (img*255/img.max()).astype('uint8')
 				row = get_texture_feats(row, img)"""
 
-	row += get_peripheral_coverage(ball_ct24_path, ball_mask_path)
+	row += get_peripheral_coverage(ball_P['ct24']['img'], ball_mask_path)
 
 	return row
-
 
 ###########################
 ### Features
@@ -487,14 +462,15 @@ def get_rim_coverage(img, ball_mask_path, threshold=100, r_frac=.85):
 	return (img > threshold).sum() / (img > 0).sum() 
 	#row.append(max( [(img[i] > threshold).sum() / (img[i] > 0).sum() for i in range(2)] ))
 
-def get_peripheral_coverage(ball_ct24_path, ball_mask_path, thresholds=[100,150], dR=.15):
-	ball = masks.get_mask(ball_mask_path)[0]
+def get_peripheral_coverage(lesion_id, target_dir, thresholds=[100,150], dR=.15):
+	P = get_paths_dict(lesion_id, target_dir)
+	ball = masks.get_mask(P['ball']['mask'])[0]
 	nonzeros = np.argwhere(ball)
 	
 	R = (nonzeros[:,0].max() - nonzeros[:,0].min()) / 2
 	m = ball.shape[0]//2
 
-	img = hf.nii_load(ball_ct24_path)[0]
+	img = hf.nii_load(P['ball']['ct24']['img'])[0]
 	img[img < 0] = 1
 	img = img*(1-ball/ball.max())
 	
@@ -514,24 +490,12 @@ def get_peripheral_coverage(ball_ct24_path, ball_mask_path, thresholds=[100,150]
 	return [(img > T).sum() / (img > 0).sum() for T in thresholds]
 
 def get_qEASL(lesion_id, target_dir):
-	paths = get_paths(lesion_id, target_dir)
+	P = get_paths_dict(lesion_id, target_dir)
 
-	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, mribl_sub_path, \
-	mribl_tumor_mask_path, mribl_liver_mask_path, \
-	mribl_enh_mask_path, mribl_nec_mask_path, \
-	mri30d_art_path, mri30d_pre_path, \
-	mri30d_tumor_mask_path, mri30d_liver_mask_path, \
-	mri30d_enh_mask_path, mri30d_nec_mask_path, \
-	ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
-	ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
-	midlip_mask_path, ball_midlip_mask_path, \
-	highlip_mask_path, ball_highlip_mask_path = paths
-
-	Abl, Dbl = hf.nii_load(mribl_art_path)
-	A30, D30 = hf.nii_load(mri30d_art_path)
-	return (masks.get_mask(mri30d_enh_mask_path, D30, A30.shape)[0].sum() * np.product(D30)) / \
-			(masks.get_mask(mribl_enh_mask_path, Dbl, Abl.shape)[0].sum() * np.product(Dbl)) - 1
+	Abl, Dbl = hf.nii_load(P['mrbl']['art'])
+	A30, D30 = hf.nii_load(P['mr30']['art'])
+	return (masks.get_mask(P['mr30']['enh'], D30, A30.shape)[0].sum() * np.product(D30)) / \
+			(masks.get_mask(P['mrbl']['enh'], Dbl, Abl.shape)[0].sum() * np.product(Dbl)) - 1
 
 ############## Spherical shell analysis
 
@@ -663,72 +627,34 @@ def get_avg_ball_intensity(reg_img_path, ball_mask_path):
 ### File I/O
 ###########################
 
-def get_paths(lesion_id, target_dir, check_valid=True):
-	if not exists(join(target_dir, lesion_id)):
-		raise ValueError(lesion_id, "does not exist!")
-
-	mask_dir = join(target_dir, lesion_id, "masks")
-	nii_dir = join(target_dir, lesion_id, "nii_files")
-	if not exists(nii_dir):
-		os.makedirs(nii_dir)
-
-	ct24_path = join(target_dir, lesion_id, "nii_files", "ct24.nii.gz")
-	ct24_tumor_mask_path = glob.glob(join(mask_dir, "tumor*24h*.ids"))
-	ct24_liver_mask_path = glob.glob(join(mask_dir, "wholeliver_24hCT*.ids"))
-	if len(ct24_tumor_mask_path) > 0:
-		ct24_tumor_mask_path = ct24_tumor_mask_path[0]
-	else:
-		ct24_tumor_mask_path = join(mask_dir, "tumor_24h.ids")
-	if len(ct24_liver_mask_path) > 0:
-		ct24_liver_mask_path = ct24_liver_mask_path[0]
-	else:
-		ct24_liver_mask_path = join(mask_dir, "wholeliver_24hCT.ids")
-
-	mribl_art_path = join(target_dir, lesion_id, "MRI-BL", "mribl_art.nii.gz")
-	mribl_pre_path = join(target_dir, lesion_id, "MRI-BL", "mribl_pre.nii.gz")
-	mribl_sub_path = join(target_dir, lesion_id, "MRI-BL", "mribl_sub.nii.gz")
-	mribl_tumor_mask_path = join(mask_dir, "tumor_BL_MRI")
-	mribl_liver_mask_path = join(mask_dir, "mribl_liver")
-	mribl_enh_mask_path = join(mask_dir, "enh_bl")
-	mribl_nec_mask_path = join(mask_dir, "nec_bl")
-
-	mri30d_art_path = join(target_dir, lesion_id, "MRI-30d", "mr30_art.nii.gz")
-	mri30d_pre_path = join(target_dir, lesion_id, "MRI-30d", "mr30_pre.nii.gz")
-	mri30d_tumor_mask_path = join(mask_dir, "tumor_30dFU_MRI")
-	mri30d_liver_mask_path = join(mask_dir, "mri30d_liver")
-	mri30d_enh_mask_path = join(mask_dir, "enh_30d")
-	mri30d_nec_mask_path = join(mask_dir, "nec_30d")
-
-	paths = [mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-			mribl_art_path, mribl_pre_path, mribl_sub_path, \
-			mribl_tumor_mask_path, mribl_liver_mask_path, \
-			mribl_enh_mask_path, mribl_nec_mask_path, \
-			mri30d_art_path, mri30d_pre_path, \
-			mri30d_tumor_mask_path, mri30d_liver_mask_path, \
-			mri30d_enh_mask_path, mri30d_nec_mask_path]
-
-	flag = False
-	for path in paths:
+def check_paths(lesion_id, target_dir):
+	P = get_paths_dict(lesion_id, target_dir)
+	for path in [P['mask'], P['nii'], P['ct24']['img'], P['ct24']['tumor'], P['ct24']['liver'], \
+			P['mrbl']['art'], P['mrbl']['pre'], P['mrbl']['sub'], \
+			P['mrbl']['tumor'], P['mrbl']['liver'], \
+			P['mr30']['art'], P['mr30']['pre'], \
+			P['mr30']['tumor'], P['mr30']['liver']]:
 		if not exists(path) and not exists(path+".ics"):
 			print(path, "does not exist!")
-			flag=True
-			if check_valid:
-				raise ValueError(path)
+			raise ValueError(path)
 
-	ball_ct24_path = join(nii_dir, "ct24_ball.nii")
+	#if P['mrbl']['enh'] and P['mrbl']['nec']:
+	#if P['mr30']['enh'] and P['mr30']['nec']:
+
+	ball_P['ct24']['img'] = join(nii_dir, "ct24_ball.nii")
 	ball_mribl_path = join(nii_dir, "mribl_ball.nii")
 	ball_mri30d_path = join(nii_dir, "mri30d_ball.nii")
 	ball_mask_path = join(mask_dir, "ball_mask")
-	ball_mribl_enh_mask_path = join(mask_dir, "ball_mribl_enh_mask")
-	ball_mri30d_enh_mask_path = join(mask_dir, "ball_mri30d_enh_mask")
+	ball_P['mrbl']['enh'] = join(mask_dir, "ball_mribl_enh_mask")
+	ball_P['mr30']['enh'] = join(mask_dir, "ball_mri30d_enh_mask")
 
 	midlip_mask_path = join(mask_dir, "mid_lipiodol")
 	ball_midlip_mask_path = join(mask_dir, "ball_mid_lipiodol")
 	highlip_mask_path = join(mask_dir, "high_lipiodol")
 	ball_highlip_mask_path = join(mask_dir, "ball_lipiodol")
 
-	paths += [ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
-			ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
+	paths += [ball_P['ct24']['img'], ball_mribl_path, ball_mri30d_path, \
+			ball_mask_path, ball_P['mrbl']['enh'], ball_P['mr30']['enh'], \
 			midlip_mask_path, ball_midlip_mask_path, \
 			highlip_mask_path, ball_highlip_mask_path]
 
@@ -751,8 +677,9 @@ def get_paths_dict(lesion_id, target_dir):
 	P['ct24']['img'] = join(target_dir, lesion_id, "nii_files", "ct24.nii.gz")
 	P['ct24']['tumor'] = glob.glob(join(mask_dir, "tumor*24h*.ids"))
 	P['ct24']['liver'] = glob.glob(join(mask_dir, "wholeliver_24hCT*.ids"))
-	P['ct24']['midlip'] = join(mask_dir, "mid_lipiodol")
-	P['ct24']['highlip'] = join(mask_dir, "high_lipiodol")
+	P['ct24']['lowlip'] = join(mask_dir, "lipiodol_low")
+	P['ct24']['midlip'] = join(mask_dir, "lipiodol_mid")
+	P['ct24']['highlip'] = join(mask_dir, "lipiodol_high")
 	if len(P['ct24']['tumor']) > 0:
 		P['ct24']['tumor'] = P['ct24']['tumor'][0]
 	else:
@@ -762,13 +689,14 @@ def get_paths_dict(lesion_id, target_dir):
 	else:
 		raise ValueError('liver')
 
-	P['mrbl']['art'] = join(target_dir, lesion_id, "MRI-BL", "mribl_art.nii.gz")
-	P['mrbl']['pre'] = join(target_dir, lesion_id, "MRI-BL", "mribl_pre.nii.gz")
-	P['mrbl']['sub'] = join(target_dir, lesion_id, "MRI-BL", "mribl_sub.nii.gz")
-	P['mrbl']['equ'] = join(target_dir, lesion_id, "MRI-BL", "mribl_equ.nii.gz")
+	P['mrbl']['art'] = join(target_dir, lesion_id, "MRI-BL", "mrbl_art.nii.gz")
+	P['mrbl']['pre'] = join(target_dir, lesion_id, "MRI-BL", "mrbl_pre.nii.gz")
+	P['mrbl']['sub'] = join(target_dir, lesion_id, "MRI-BL", "mrbl_sub.nii.gz")
+	P['mrbl']['equ'] = join(target_dir, lesion_id, "MRI-BL", "mrbl_equ.nii.gz")
 	P['mr30']['art'] = join(target_dir, lesion_id, "MRI-30d", "mr30_art.nii.gz")
 	P['mr30']['pre'] = join(target_dir, lesion_id, "MRI-30d", "mr30_pre.nii.gz")
 	P['mr30']['sub'] = join(target_dir, lesion_id, "MRI-30d", "mr30_sub.nii.gz")
+	P['mr30']['equ'] = join(target_dir, lesion_id, "MRI-30d", "mr30_equ.nii.gz")
 
 	P['mrbl']['tumor'] = join(mask_dir, "tumor_BL_MRI")
 	P['mrbl']['liver'] = join(mask_dir, "mribl_liver")
@@ -801,48 +729,36 @@ def get_paths_dict(lesion_id, target_dir):
 ### Segmentation methods
 ###########################
 
-def seg_lipiodol(lesion_id, target_dir):
-	paths = get_paths(lesion_id, target_dir, check_valid=False)
-
-	mask_dir, nii_dir, ct24_path, ct24_tumor_mask_path, ct24_liver_mask_path, \
-	mribl_art_path, mribl_pre_path, mribl_sub_path, \
-	mribl_tumor_mask_path, mribl_liver_mask_path, \
-	mribl_enh_mask_path, mribl_nec_mask_path, \
-	mri30d_art_path, mri30d_pre_path, \
-	mri30d_tumor_mask_path, mri30d_liver_mask_path, \
-	mri30d_enh_mask_path, mri30d_nec_mask_path, \
-	ball_ct24_path, ball_mribl_path, ball_mri30d_path, \
-	ball_mask_path, ball_mribl_enh_mask_path, ball_mri30d_enh_mask_path, \
-	midlip_mask_path, ball_midlip_mask_path, \
-	highlip_mask_path, ball_highlip_mask_path = paths
+def seg_lipiodol(lesion_id, target_dir, thresholds=[100,150,200]):
+	P = get_paths_dict(lesion_id, target_dir)
 	
-	img, dims = hf.nii_load(ct24_path)
+	img, dims = hf.nii_load(P['ct24']['img'])
 
 	low_mask = copy.deepcopy(img)
-	low_mask = low_mask > 100
+	low_mask = low_mask > thresholds[0]
 	low_mask = binary_opening(binary_closing(low_mask, structure=np.ones((2,2,1))), structure=np.ones((2,2,1)))
 	mid_mask = copy.deepcopy(img)
-	mid_mask = mid_mask > 150
+	mid_mask = mid_mask > thresholds[1]
 	mid_mask = binary_closing(mid_mask)
 	high_mask = copy.deepcopy(img)
-	high_mask = high_mask > 200
+	high_mask = high_mask > thresholds[2]
 
-	mask,_ = masks.get_mask(ct24_liver_mask_path, dims, img.shape)
+	mask,_ = masks.get_mask(P['ct24']['liver'], dims, img.shape)
 	low_mask = low_mask*mask
 	mid_mask = mid_mask*mask
 	high_mask = high_mask*mask
 	
-	masks.save_mask(low_mask, join(mask_dir, "low_lipiodol"), dims, save_mesh=True)
-	masks.save_mask(mid_mask, join(mask_dir, "mid_lipiodol"), dims, save_mesh=True)
-	masks.save_mask(high_mask, join(mask_dir, "high_lipiodol"), dims, save_mesh=True)
+	masks.save_mask(low_mask, P['ct24']['lowlip'], dims, save_mesh=True)
+	masks.save_mask(mid_mask, P['ct24']['midlip'], dims, save_mesh=True)
+	masks.save_mask(high_mask, P['ct24']['highlip'], dims, save_mesh=True)
 
-def seg_target_lipiodol(img, save_folder, ct_dims, num_tumors=1):
+def seg_target_lipiodol(img, save_folder, ct_dims, threshold=150, num_tumors=1):
 	mid_mask = copy.deepcopy(img)
-	mid_mask = mid_mask > 150
+	mid_mask = mid_mask > threshold
 	mid_mask = binary_closing(mid_mask)
 	
 	mask1 = copy.deepcopy(img)
-	mask1 = mask1 > 150
+	mask1 = mask1 > threshold
 	B2 = ball(2)
 	B2 = B2[:,:,[0,2,4]]
 	mask1 = binary_dilation(mask1, np.ones((3,3,1)))
