@@ -27,11 +27,11 @@ def write_ranked_imgs(df, target_dir, column, img_type, root_dir, overwrite=Fals
 	if not exists(root_dir):
 		os.makedirs(root_dir)
 		
-	for ix,row in df.sort_values([column], ascending=False).iterrows():
+	for ix,row in df.dropna(subset=[column]).sort_values([column], ascending=False).iterrows():
 		save_dir = join(root_dir, "%d_%s" % (row[column]*100, ix))
 		
 		patient_id = ix
-		P = lm.get_paths_dict(patient_id, target_dir, check_valid=False)
+		P = lm.get_paths_dict(patient_id, target_dir)
 		
 		if mask_type is not None:
 			masks.create_dcm_with_mask(eval(img_type), eval(mask_type), save_dir,
@@ -138,30 +138,33 @@ def draw_mrseq_with_mask(lesion_id, target_dir, save_dir, mod='mrbl'):
 
 	tumor_mask = masks.get_mask(P[mod]['tumor'], D, I.shape)[0]
 	tumor_mask = hf.crop_nonzero(tumor_mask, C)[0]
-	tumor_mask = (tumor_mask/tumor_mask.max()*255).astype('uint8')
-	_,thresh = cv2.threshold(tumor_mask[:,:,sl],127,255,0)
-	contours = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)[1]
-	tumor_cont = cv2.drawContours(np.zeros((art.shape[0],art.shape[1],3),'uint8'), contours, -1, (0,255,0), 1)
 
-	sub_w_mask = sub[...,sl] - sub[...,sl].min()
-	sub_w_mask = (sub_w_mask/sub_w_mask.max()*255).astype('uint8')
-	sub_w_mask = sub_w_mask * (tumor_cont[...,1] == 0)
+	sub_w_mask = create_contour_img(sub[...,sl], [tumor_mask[...,sl], mask[...,sl]])
 
-	if mask[...,sl].sum() == 0:
-		#sub_w_mask = sub[...,sl]
-		sub_w_mask = np.stack([sub_w_mask, sub_w_mask, sub_w_mask], -1)
-		sub_w_mask += tumor_cont
-	else:
-		mask = (mask/mask.max()*255).astype('uint8')
-		_,thresh = cv2.threshold(mask[:,:,sl],127,255,0)
-		contours = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)[1]
-		cont = cv2.drawContours(np.zeros((art.shape[0],art.shape[1],3),'uint8'), contours, -1, (255,0,0), 1)
-		sub_w_mask = sub_w_mask * (cont[...,0] == 0)
-
-		tumor_cont[cont[...,0] != 0] = 0
-		sub_w_mask = np.stack([sub_w_mask, sub_w_mask, sub_w_mask], -1)
-		sub_w_mask += tumor_cont
-		sub_w_mask += cont
+	"""tumor_mask = (tumor_mask/tumor_mask.max()*255).astype('uint8')
+				_,thresh = cv2.threshold(tumor_mask[:,:,sl],127,255,0)
+				contours = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)[1]
+				tumor_cont = cv2.drawContours(np.zeros((art.shape[0],art.shape[1],3),'uint8'), contours, -1, (0,255,0), 1)
+			
+				sub_w_mask = sub[...,sl] - sub[...,sl].min()
+				sub_w_mask = (sub_w_mask/sub_w_mask.max()*255).astype('uint8')
+				sub_w_mask = sub_w_mask * (tumor_cont[...,1] == 0)
+			
+				if mask[...,sl].sum() == 0:
+					#sub_w_mask = sub[...,sl]
+					sub_w_mask = np.stack([sub_w_mask, sub_w_mask, sub_w_mask], -1)
+					sub_w_mask += tumor_cont
+				else:
+					mask = (mask/mask.max()*255).astype('uint8')
+					_,thresh = cv2.threshold(mask[:,:,sl],127,255,0)
+					contours = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)[1]
+					cont = cv2.drawContours(np.zeros((art.shape[0],art.shape[1],3),'uint8'), contours, -1, (255,0,0), 1)
+					sub_w_mask = sub_w_mask * (cont[...,0] == 0)
+			
+					tumor_cont[cont[...,0] != 0] = 0
+					sub_w_mask = np.stack([sub_w_mask, sub_w_mask, sub_w_mask], -1)
+					sub_w_mask += tumor_cont
+					sub_w_mask += cont"""
 
 	out_img.append(pre[...,sl])
 	out_img.append(art[...,sl])
@@ -184,6 +187,59 @@ def draw_mrseq_with_mask(lesion_id, target_dir, save_dir, mod='mrbl'):
 	plt.subplots_adjust(wspace=0, hspace=0)
 	plt.savefig(join(save_dir, "%s_%s.png" % (lesion_id, mod)), dpi=150, bbox_inches='tight')
 
+def display_sequence(rows, cols, save_path):
+	out_img.append(pre[...,sl])
+	out_img.append(art[...,sl])
+	out_img.append(equ[...,sl])
+	out_img.append(sub[...,sl])
+	out_img.append(np.transpose(sub_w_mask, (1,0,2)))
+	out_img.append(mask[...,sl])
+	#img = np.transpose(img, (1,0,2))
+	#mask = np.transpose(mask, (1,0,2))
+
+	for ix in range(4):
+		plt.subplot(231+ix)
+		hf._plot_without_axes(out_img[ix])
+	plt.subplot(231+4)
+	fig = plt.imshow(out_img[4])
+	fig.axes.get_xaxis().set_visible(False)
+	fig.axes.get_yaxis().set_visible(False)
+	plt.subplot(231+5)
+	hf._plot_without_axes(out_img[5])
+	plt.subplots_adjust(wspace=0, hspace=0)
+	plt.savefig(join(save_dir, "%s_%s.png" % (lesion_id, mod)), dpi=150, bbox_inches='tight')
+
+def create_contour_img(img_sl, mask_sl, colors=[(0,255,0), (255,0,0)]):
+	if type(mask_sl) != list:
+		mask_sl = [mask_sl]
+
+	if mask_sl[0].max() == 0:
+		return img_sl
+
+	mask = (mask_sl[0]/mask_sl[0].max()*255).astype('uint8')
+	_,thresh = cv2.threshold(mask[:,:,sl],127,255,0)
+	contours = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)[1]
+	cont1 = cv2.drawContours(np.zeros((img.shape[0],img.shape[1],3),'uint8'), contours, -1, colors[0], 1)
+
+	img = img_sl - img_sl.min()
+	img = (img/img.max()*255).astype('uint8')
+	img = img * (cont1[...,1] == 0)
+
+	if len(mask_sl) == 1 or mask_sl[1].max() == 0:
+		img = np.stack([img, img, img], -1)
+		img += cont1
+	else:
+		mask = (mask_sl[1]/mask_sl[1].max()*255).astype('uint8')
+		_,thresh = cv2.threshold(mask[:,:,sl],127,255,0)
+		contours = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)[1]
+		cont2 = cv2.drawContours(np.zeros((art.shape[0],art.shape[1],3),'uint8'), contours, -1, colors[1], 1)
+
+		img = img * (cont2[...,0] == 0)
+		cont2[cont1[...,0] != 0] = 0
+		img = np.stack([img, img, img], -1)
+		img += cont1 + cont2
+
+	return img
 
 ###########################
 ### Draw figure
@@ -216,47 +272,52 @@ def check_feature(lesion_id, df, column, legend_names, criteria_pos, criteria_ne
 		return np.nan
 
 def get_df_entry(lesion_id, master_df, modality):
-	return [check_column(lesion_id, master_df, "0=well delineated, 1=infiltrative", {0: "Focal", 1: "Infiltrative"}),
-			check_column(lesion_id, master_df, "HCC(0), ICC(1), other(2)", {0: "HCCs", 1: "ICCs", 2: "Metastases"}),
-			check_column(lesion_id, master_df, "selective=0", {0: "Selective TACE", 1: "Lobar TACE"}),
-			check_homogeneous(lesion_id, master_df, modality),
-			check_sparse(lesion_id, master_df, modality),
-			check_rim(lesion_id, master_df, modality)]
+	if modality == "mrbl":
+		return [check_column(lesion_id, master_df, "0=well delineated, 1=infiltrative", {0: "Focal", 1: "Infiltrative"}),
+				check_column(lesion_id, master_df, "HCC(0), ICC(1), other(2)", {0: "HCCs", 1: "ICCs", 2: "Metastases"}),
+				check_column(lesion_id, master_df, "selective=0", {0: "Selective TACE", 1: "Lobar TACE"})]
+	elif modality == "ct24":
+		return [check_column(lesion_id, master_df, "0=well delineated, 1=infiltrative", {0: "Focal", 1: "Infiltrative"}),
+				check_column(lesion_id, master_df, "HCC(0), ICC(1), other(2)", {0: "HCCs", 1: "ICCs", 2: "Metastases"}),
+				check_column(lesion_id, master_df, "selective=0", {0: "Selective TACE", 1: "Lobar TACE"}),
+				check_homogeneous(lesion_id, master_df, modality),
+				check_sparse(lesion_id, master_df, modality),
+				check_rim(lesion_id, master_df, modality)]
 
 def check_homogeneous(lesion_id, df, modality):
 	if modality == "mrbl":
-		return check_feature(lesion_id, df, "enhancing_vol%",
+		return check_feature(lesion_id, df, "enhancing_vol",
 			legend_names=["Homogeneous\nenhancement", "Heterogeneous\nenhancement"],
 			criteria_pos=lambda x: x > .75, restriction="Focal")
 
 	elif modality == "ct24":
-		return check_feature(lesion_id, df, "lipcoverage_vol%",
+		return check_feature(lesion_id, df, "lipcoverage_vol",
 			legend_names=["Homogeneous\ndeposition", "Heterogeneous\ndeposition"],
-			criteria_pos=lambda x: x > .85, restriction="Focal")
+			criteria_pos=lambda x: x >= .8, restriction="Focal")
 
 def check_sparse(lesion_id, df, modality, restriction=None):
 	if modality == "mrbl":
-		return check_feature(lesion_id, df, "enhancing_vol%",
+		return check_feature(lesion_id, df, "enhancing_vol",
 			legend_names=["Sparse enhancement", "Non-sparse, heterogeneous\nenhancement"],
-			criteria_pos=lambda x: x < .25, criteria_neg=lambda x: (x>=.25) & (x<=.85),
+			criteria_pos=lambda x: x < .25, criteria_neg=lambda x: (x>=.25) & (x<.8),
 			restriction=restriction)
 
 	elif modality == "ct24":
-		return check_feature(lesion_id, df[df["lipcoverage_vol%"] <= .85], "lipcoverage_vol%",
+		return check_feature(lesion_id, df[df["lipcoverage_vol"] < .8], "lipcoverage_vol",
 			legend_names=["Sparse deposition", "Non-sparse, heterogeneous\ndeposition"],
-			criteria_pos=lambda x: x < .2,#, criteria_neg=lambda x: (x>=.25) & (x<=.85),
+			criteria_pos=lambda x: x < .2, criteria_neg=lambda x: (x>=.25) & (x<.8),
 			restriction=restriction)
 
 def check_rim(lesion_id, df, modality):
 	if modality == "mrbl":
-		return check_feature(lesion_id, df, "rim_enhancing%",
+		return check_feature(lesion_id, df, "rim_enhancing",
 			legend_names=["Rim enhancement", "Non-rim, heterogeneous\nenhancement"],
 			criteria_pos=lambda x: x > .5, restriction="Focal")
 
 	elif modality == "ct24":
-		return check_feature(lesion_id, df[df["lipcoverage_vol%"] <= .85], "rim_lipiodol%",
+		return check_feature(lesion_id, df[df["lipcoverage_vol"] < .8], "rim_lipiodol",
 			legend_names=["Rim deposition", "Non-rim, heterogeneous\ndeposition"],
-			criteria_pos=lambda x: x > .28, restriction="Focal")
+			criteria_pos=lambda x: x > 25, restriction="Focal")
 
 def check_column(lesion_id, df, column, mapping, restriction=None):
 	if np.isnan(df.loc[lesion_id, column]):
