@@ -139,107 +139,48 @@ def draw_mrseq_with_mask(lesion_id, target_dir, save_dir, mod='mrbl'):
 	tumor_mask = masks.get_mask(P[mod]['tumor'], D, I.shape)[0]
 	tumor_mask = hf.crop_nonzero(tumor_mask, C)[0]
 
-	sub_w_mask = create_contour_img(sub[...,sl], [tumor_mask[...,sl], mask[...,sl]])
+	sub_w_mask = hf.create_contour_img(sub[...,sl], [tumor_mask[...,sl], mask[...,sl]])
 
-	"""tumor_mask = (tumor_mask/tumor_mask.max()*255).astype('uint8')
-				_,thresh = cv2.threshold(tumor_mask[:,:,sl],127,255,0)
-				contours = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)[1]
-				tumor_cont = cv2.drawContours(np.zeros((art.shape[0],art.shape[1],3),'uint8'), contours, -1, (0,255,0), 1)
-			
-				sub_w_mask = sub[...,sl] - sub[...,sl].min()
-				sub_w_mask = (sub_w_mask/sub_w_mask.max()*255).astype('uint8')
-				sub_w_mask = sub_w_mask * (tumor_cont[...,1] == 0)
-			
-				if mask[...,sl].sum() == 0:
-					#sub_w_mask = sub[...,sl]
-					sub_w_mask = np.stack([sub_w_mask, sub_w_mask, sub_w_mask], -1)
-					sub_w_mask += tumor_cont
-				else:
-					mask = (mask/mask.max()*255).astype('uint8')
-					_,thresh = cv2.threshold(mask[:,:,sl],127,255,0)
-					contours = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)[1]
-					cont = cv2.drawContours(np.zeros((art.shape[0],art.shape[1],3),'uint8'), contours, -1, (255,0,0), 1)
-					sub_w_mask = sub_w_mask * (cont[...,0] == 0)
-			
-					tumor_cont[cont[...,0] != 0] = 0
-					sub_w_mask = np.stack([sub_w_mask, sub_w_mask, sub_w_mask], -1)
-					sub_w_mask += tumor_cont
-					sub_w_mask += cont"""
+	hf.display_sequence([pre[...,sl], art[...,sl], equ[...,sl], sub[...,sl],
+		np.transpose(sub_w_mask, (1,0,2)), mask[...,sl]], 2, 3,
+		join(save_dir, "%s_%s.png" % (lesion_id, mod)))
 
-	out_img.append(pre[...,sl])
-	out_img.append(art[...,sl])
-	out_img.append(equ[...,sl])
-	out_img.append(sub[...,sl])
-	out_img.append(np.transpose(sub_w_mask, (1,0,2)))
-	out_img.append(mask[...,sl])
-	#img = np.transpose(img, (1,0,2))
-	#mask = np.transpose(mask, (1,0,2))
+def draw_reg_seq(lesion_id, target_dir, save_dir):
+	importlib.reload(hf)
+	P = lm.get_paths_dict(lesion_id, target_dir)
 
-	for ix in range(4):
-		plt.subplot(231+ix)
-		hf._plot_without_axes(out_img[ix])
-	plt.subplot(231+4)
-	fig = plt.imshow(out_img[4])
-	fig.axes.get_xaxis().set_visible(False)
-	fig.axes.get_yaxis().set_visible(False)
-	plt.subplot(231+5)
-	hf._plot_without_axes(out_img[5])
-	plt.subplots_adjust(wspace=0, hspace=0)
-	plt.savefig(join(save_dir, "%s_%s.png" % (lesion_id, mod)), dpi=150, bbox_inches='tight')
+	out_img = []
+	bl_img = masks.crop_img_to_mask_vicinity(P['mrbl']['sub'], P['mrbl']['tumor'], .5)
+	fu_img = masks.crop_img_to_mask_vicinity(P['mr30']['sub'], P['mr30']['tumor'], .5)
+	ct_img = masks.crop_img_to_mask_vicinity(P['ct24']['img'], P['ct24']['tumor'], .5)
+	bl_Tx,D = hf.nii_load(P['ct24Tx']['mrbl']['art'])
+	fu_Tx = hf.nii_load(P['ct24Tx']['mr30']['art'])[0]
+	#ct_img = hf.nii_load(P['ct24Tx']['mr30']['art'])[0]#masks.crop_img_to_mask_vicinity(P['ct24']['img'], P['ct24']['tumor'], .5, return_crops=True)
 
-def display_sequence(rows, cols, save_path):
-	out_img.append(pre[...,sl])
-	out_img.append(art[...,sl])
-	out_img.append(equ[...,sl])
-	out_img.append(sub[...,sl])
-	out_img.append(np.transpose(sub_w_mask, (1,0,2)))
-	out_img.append(mask[...,sl])
-	#img = np.transpose(img, (1,0,2))
-	#mask = np.transpose(mask, (1,0,2))
+	tumor_mask = masks.get_mask(P['ct24Tx']['crop']['tumor'])[0]
+	sl = bl_Tx.shape[-1]//2
 
-	for ix in range(4):
-		plt.subplot(231+ix)
-		hf._plot_without_axes(out_img[ix])
-	plt.subplot(231+4)
-	fig = plt.imshow(out_img[4])
-	fig.axes.get_xaxis().set_visible(False)
-	fig.axes.get_yaxis().set_visible(False)
-	plt.subplot(231+5)
-	hf._plot_without_axes(out_img[5])
-	plt.subplots_adjust(wspace=0, hspace=0)
-	plt.savefig(join(save_dir, "%s_%s.png" % (lesion_id, mod)), dpi=150, bbox_inches='tight')
-
-def create_contour_img(img_sl, mask_sl, colors=[(0,255,0), (255,0,0)]):
-	if type(mask_sl) != list:
-		mask_sl = [mask_sl]
-
-	if mask_sl[0].max() == 0:
-		return img_sl
-
-	mask = (mask_sl[0]/mask_sl[0].max()*255).astype('uint8')
-	_,thresh = cv2.threshold(mask[:,:,sl],127,255,0)
-	contours = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)[1]
-	cont1 = cv2.drawContours(np.zeros((img.shape[0],img.shape[1],3),'uint8'), contours, -1, colors[0], 1)
-
-	img = img_sl - img_sl.min()
-	img = (img/img.max()*255).astype('uint8')
-	img = img * (cont1[...,1] == 0)
-
-	if len(mask_sl) == 1 or mask_sl[1].max() == 0:
-		img = np.stack([img, img, img], -1)
-		img += cont1
+	if exists(P['ct24Tx']['mrbl']['enh'] + ".off"):
+		bl_M = masks.get_mask(P['ct24Tx']['mrbl']['enh'], D, bl_Tx.shape)[0]
 	else:
-		mask = (mask_sl[1]/mask_sl[1].max()*255).astype('uint8')
-		_,thresh = cv2.threshold(mask[:,:,sl],127,255,0)
-		contours = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)[1]
-		cont2 = cv2.drawContours(np.zeros((art.shape[0],art.shape[1],3),'uint8'), contours, -1, colors[1], 1)
+		bl_M = np.zeros(bl_Tx.shape)
 
-		img = img * (cont2[...,0] == 0)
-		cont2[cont1[...,0] != 0] = 0
-		img = np.stack([img, img, img], -1)
-		img += cont1 + cont2
+	if exists(P['ct24Tx']['mr30']['enh'] + ".off"):
+		fu_M = masks.get_mask(P['ct24Tx']['mr30']['enh'], D, bl_Tx.shape)[0]
+	else:
+		fu_M = np.zeros(bl_Tx.shape)
 
-	return img
+	ct_img = tr.apply_window(ct_img, limits=[0,300])
+
+	mask_overlay = np.stack([bl_M[...,sl], np.zeros(bl_M.shape[:2]), fu_M[...,sl]], -1)
+
+	bl_Tx_cont = hf.create_contour_img(bl_Tx[...,sl], [tumor_mask[...,sl], bl_M[...,sl]], colors=[(0,255,0), (255,0,0)])
+	fu_Tx_cont = hf.create_contour_img(fu_Tx[...,sl], [tumor_mask[...,sl], fu_M[...,sl]], colors=[(0,255,0), (0,0,255)])
+
+	hf.display_sequence([bl_img[...,bl_img.shape[-1]//2], fu_img[...,fu_img.shape[-1]//2],
+		ct_img[...,ct_img.shape[-1]//2], np.transpose(bl_Tx_cont, (1,0,2)),
+		np.transpose(fu_Tx_cont, (1,0,2)), np.transpose(mask_overlay, (1,0,2))],
+		2, 3, join(save_dir, "%s.png" % lesion_id))
 
 ###########################
 ### Draw figure
