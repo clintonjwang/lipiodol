@@ -139,23 +139,23 @@ def draw_mrseq_with_mask(lesion_id, target_dir, save_dir, mod='mrbl'):
 	tumor_mask = masks.get_mask(P[mod]['tumor'], D, I.shape)[0]
 	tumor_mask = hf.crop_nonzero(tumor_mask, C)[0]
 
-	sub_w_mask = hf.create_contour_img(sub[...,sl], [tumor_mask[...,sl], mask[...,sl]])
+	sub_w_mask = hf.create_contour_img(sub, [tumor_mask, mask])
 
 	hf.display_sequence([pre[...,sl], art[...,sl], equ[...,sl], sub[...,sl],
-		np.transpose(sub_w_mask, (1,0,2)), mask[...,sl]], 2, 3,
+		sub_w_mask, mask[...,sl]], 2, 3,
 		join(save_dir, "%s_%s.png" % (lesion_id, mod)))
 
 def draw_reg_seq(lesion_id, target_dir, save_dir):
 	importlib.reload(hf)
+	importlib.reload(masks)
 	P = lm.get_paths_dict(lesion_id, target_dir)
 
 	out_img = []
-	bl_img = masks.crop_img_to_mask_vicinity(P['mrbl']['sub'], P['mrbl']['tumor'], .5)
-	fu_img = masks.crop_img_to_mask_vicinity(P['mr30']['sub'], P['mr30']['tumor'], .5)
-	ct_img = masks.crop_img_to_mask_vicinity(P['ct24']['img'], P['ct24']['tumor'], .5)
+	bl_img = masks.crop_img_to_mask_vicinity(P['mrbl']['sub'], P['mrbl']['tumor'], .5, add_mask_cont=True)
+	fu_img = masks.crop_img_to_mask_vicinity(P['mr30']['sub'], P['mr30']['tumor'], .5, add_mask_cont=True)
+	ct_img = masks.crop_img_to_mask_vicinity(P['ct24']['img'], P['ct24']['tumor'], .5, add_mask_cont=True, window=[0,300])
 	bl_Tx,D = hf.nii_load(P['ct24Tx']['mrbl']['art'])
 	fu_Tx = hf.nii_load(P['ct24Tx']['mr30']['art'])[0]
-	#ct_img = hf.nii_load(P['ct24Tx']['mr30']['art'])[0]#masks.crop_img_to_mask_vicinity(P['ct24']['img'], P['ct24']['tumor'], .5, return_crops=True)
 
 	tumor_mask = masks.get_mask(P['ct24Tx']['crop']['tumor'])[0]
 	sl = bl_Tx.shape[-1]//2
@@ -170,16 +170,20 @@ def draw_reg_seq(lesion_id, target_dir, save_dir):
 	else:
 		fu_M = np.zeros(bl_Tx.shape)
 
-	ct_img = tr.apply_window(ct_img, limits=[0,300])
-
 	mask_overlay = np.stack([bl_M[...,sl], np.zeros(bl_M.shape[:2]), fu_M[...,sl]], -1)
 
 	bl_Tx_cont = hf.create_contour_img(bl_Tx[...,sl], [tumor_mask[...,sl], bl_M[...,sl]], colors=[(0,255,0), (255,0,0)])
 	fu_Tx_cont = hf.create_contour_img(fu_Tx[...,sl], [tumor_mask[...,sl], fu_M[...,sl]], colors=[(0,255,0), (0,0,255)])
 
-	hf.display_sequence([bl_img[...,bl_img.shape[-1]//2], fu_img[...,fu_img.shape[-1]//2],
-		ct_img[...,ct_img.shape[-1]//2], np.transpose(bl_Tx_cont, (1,0,2)),
-		np.transpose(fu_Tx_cont, (1,0,2)), np.transpose(mask_overlay, (1,0,2))],
+	#if exists(P['ct24Tx']['crop']['midlip'] + ".off"):
+	#	ct_M = masks.get_mask(P['ct24Tx']['crop']['midlip'], D, bl_Tx.shape)[0]
+	#else:
+	#	ct_M = np.zeros(bl_Tx.shape)
+	#mask_overlay2 = np.stack([bl_M[...,sl]*fu_M[...,sl]/fu_M.max(), ct_M[...,sl], bl_M[...,sl]*(1-fu_M[...,sl]/fu_M.max())], -1)
+
+	hf.display_sequence([bl_img, fu_img, ct_img,#bl_img[...,bl_img.shape[-1]//2], fu_img[...,fu_img.shape[-1]//2], #ct_img[...,ct_img.shape[-1]//2]
+		bl_Tx_cont, #np.transpose(ct_Tx_cont, (1,0,2)), 
+		fu_Tx_cont, mask_overlay],#, mask_overlay2],
 		2, 3, join(save_dir, "%s.png" % lesion_id))
 
 ###########################
@@ -246,7 +250,7 @@ def check_sparse(lesion_id, df, modality, restriction=None):
 	elif modality == "ct24":
 		return check_feature(lesion_id, df[df["lipcoverage_vol"] < .8], "lipcoverage_vol",
 			legend_names=["Sparse deposition", "Non-sparse, heterogeneous\ndeposition"],
-			criteria_pos=lambda x: x < .2, criteria_neg=lambda x: (x>=.25) & (x<.8),
+			criteria_pos=lambda x: x < .2, criteria_neg=lambda x: (x>=.2) & (x<.8),
 			restriction=restriction)
 
 def check_rim(lesion_id, df, modality):
@@ -258,7 +262,7 @@ def check_rim(lesion_id, df, modality):
 	elif modality == "ct24":
 		return check_feature(lesion_id, df[df["lipcoverage_vol"] < .8], "rim_lipiodol",
 			legend_names=["Rim deposition", "Non-rim, heterogeneous\ndeposition"],
-			criteria_pos=lambda x: x > 25, restriction="Focal")
+			criteria_pos=lambda x: x > 20, restriction="Focal")
 
 def check_column(lesion_id, df, column, mapping, restriction=None):
 	if np.isnan(df.loc[lesion_id, column]):

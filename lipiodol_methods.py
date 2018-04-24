@@ -14,6 +14,7 @@ import pandas as pd
 import glob
 import shutil
 import os
+import time
 from os.path import *
 from scipy.ndimage.morphology import binary_closing, binary_opening, binary_dilation
 from skimage.morphology import ball, label
@@ -64,25 +65,25 @@ def restrict_masks(lesion_id, target_dir):
 			shutil.copy(fn, join(dirname(fn),"ZZbackup"+basename(fn)))
 		masks.restrict_mask_to_largest(mask_path, img_path=P['ct24']['img'])
 
-def spherize(lesion_id, target_dir):
+def spherize(lesion_id, target_dir, R=1.):
 	importlib.reload(reg)
 	def ball_ct_batch():
-		_ = reg.transform_region(P['ct24']['img'], xform_path, crops, pads, [1.]*3, P['ball']['ct24']['img'],
+		reg.transform_region(P['ct24']['img'], xform_path, crops, pads, [R]*3, P['ball']['ct24']['img'],
 								 intermed_shape=ball_shape)
 
 		if exists(P['ct24']['midlip']+".off"):
-			_ = reg.transform_mask(P['ct24']['midlip'], P['ct24']['img'], xform_path,
-								 crops, pads, [1.]*3, P['ball']['ct24']['midlip'], intermed_shape=ball_shape)
+			reg.transform_mask(P['ct24']['midlip'], P['ct24']['img'], xform_path,
+								 crops, pads, [R]*3, P['ball']['ct24']['midlip'], intermed_shape=ball_shape)
 			if exists(P['ct24']['highlip']+".off"):
-				_ = reg.transform_mask(P['ct24']['highlip'], P['ct24']['img'], xform_path,
-									 crops, pads, [1.]*3, P['ball']['ct24']['highlip'], intermed_shape=ball_shape)
+				reg.transform_mask(P['ct24']['highlip'], P['ct24']['img'], xform_path,
+									 crops, pads, [R]*3, P['ball']['ct24']['highlip'], intermed_shape=ball_shape)
 
 	def ball_mr_batch(mod):
-		_ = reg.transform_region(P[mod]['art'], xform_path, crops, pads, [1.]*3, P['ball'][mod]['art'], intermed_shape=ball_shape)
+		reg.transform_region(P[mod]['art'], xform_path, crops, pads, [R]*3, P['ball'][mod]['art'], intermed_shape=ball_shape)
 		
 		if exists(P['ball'][mod]['enh']+".off"):
-			_ = reg.transform_mask(P[mod]['enh'], P[mod]['art'], xform_path,
-								 crops, pads, [1.]*3, P['ball'][mod]['enh'], intermed_shape=ball_shape)
+			reg.transform_mask(P[mod]['enh'], P[mod]['art'], xform_path,
+								 crops, pads, [R]*3, P['ball'][mod]['enh'], intermed_shape=ball_shape)
 
 	P = get_paths_dict(lesion_id, target_dir)
 	
@@ -131,7 +132,7 @@ def spherize(lesion_id, target_dir):
 		xform_path, crops, pads = reg.get_mask_Tx_shape(P['ct24']['img'], P['ct24']['tumor'], ball_mask_path=P['ball']['mask'])
 		ball_ct_batch()
 
-def reg_to_ct24(lesion_id, target_dir):
+def reg_to_ct24(lesion_id, target_dir, D=[1.,1.,2.5], padding=.2):
 	importlib.reload(reg)
 	P = get_paths_dict(lesion_id, target_dir)
 
@@ -139,41 +140,31 @@ def reg_to_ct24(lesion_id, target_dir):
 	fmod='ct24'
 
 	mod = 'mrbl'
-	xform_path, crops, pads = reg.get_mask_Tx(P[fmod]['img'], P[fmod]['tumor'],
-					P[mod]['art'], P[mod]['tumor'], padding=.5)
+	xform_path, crops, pad_m = reg.get_mask_Tx(P[fmod]['img'], P[fmod]['tumor'],
+					P[mod]['art'], P[mod]['tumor'], padding=padding, D=D)
 	
 	crop_ct24 = hf.crop_nonzero(ct24, crops[1])[0]
 	t_shape = crop_ct24.shape
-	reg.transform_region(P[mod]['art'], xform_path, crops, pads, ct24_dims,
-				P['ct24Tx'][mod]['art'], target_shape=t_shape);
+	reg.transform_region(P[mod]['art'], xform_path, crops, pad_m, ct24_dims,
+				P['ct24Tx'][mod]['art'], target_shape=t_shape, D=D);
 	if exists(P[mod]['enh']+".off"):
-		reg.transform_mask(P[mod]['enh'], P[mod]['art'], xform_path, crops, pads, ct24_dims,
-				P['ct24Tx'][mod]['enh'], target_shape=t_shape);
+		reg.transform_mask(P[mod]['enh'], P[mod]['art'], xform_path, crops, pad_m, ct24_dims,
+				P['ct24Tx'][mod]['enh'], target_shape=t_shape, D=D);
 
 	hf.save_nii(crop_ct24, P['ct24Tx']['crop']['img'], ct24_dims)
 	M = masks.get_mask(P['ct24']['tumor'], ct24_dims, ct24.shape)[0]
 	M = hf.crop_nonzero(M, crops[1])[0]
 	masks.save_mask(M, P['ct24Tx']['crop']['tumor'], ct24_dims)
-	"""crop_ct24 = masks.get_mask()
-				if exists(P['ct24']['midlip']+".off"):
-					_ = reg.transform_mask(P['ct24']['midlip'], P['ct24']['img'], xform_path,
-										 crops, pads, [1.]*3, P['ball']['ct24']['midlip'], intermed_shape=ball_shape)
-					if exists(P['ct24']['highlip']+".off"):
-						_ = reg.transform_mask(P['ct24']['highlip'], P['ct24']['img'], xform_path,
-											 crops, pads, [1.]*3, P['ball']['ct24']['highlip'], intermed_shape=ball_shape)
-			
-				hf.save_nii(crop_ct24, P['ct24Tx']['crop']['img'], ct24_dims)"""
-
 
 	mod = 'mr30'
-	xform_path, crops, pads = reg.get_mask_Tx(P[fmod]['img'], P[fmod]['tumor'],
-					P[mod]['art'], P[mod]['tumor'], padding=.5)
+	xform_path, crops, pad_m = reg.get_mask_Tx(P[fmod]['img'], P[fmod]['tumor'],
+					P[mod]['art'], P[mod]['tumor'], padding=padding, D=D)
 	
-	reg.transform_region(P[mod]['art'], xform_path, crops, pads, ct24_dims,
-				P['ct24Tx'][mod]['art'], target_shape=t_shape);
+	reg.transform_region(P[mod]['art'], xform_path, crops, pad_m, ct24_dims,
+				P['ct24Tx'][mod]['art'], target_shape=t_shape, D=D);
 	if exists(P[mod]['enh']+".off"):
-		reg.transform_mask(P[mod]['enh'], P[mod]['art'], xform_path, crops, pads, ct24_dims,
-				P['ct24Tx'][mod]['enh'], target_shape=t_shape);
+		reg.transform_mask(P[mod]['enh'], P[mod]['art'], xform_path, crops, pad_m, ct24_dims,
+				P['ct24Tx'][mod]['enh'], target_shape=t_shape, D=D);
 	
 ###########################
 ### Assess correlations
@@ -265,14 +256,19 @@ def lip_to_response(lesion_id, target_dir, liplvls, exclude_small=True):
 	ct24[ct24 < 0] = 1
 
 	enh_ct = ct24 * mrbl_enh
-	#V = np.sum(enh_ct > 0)
+	V = np.sum(enh_ct != 0)
 	resp = mrbl_enh * mr30d_nec
 	resp_ct = ct24 * resp
 
 	lips = []
+	B3 = ball(3)
+	B3 = B3[:,:,[0,2,3,4,6]]
 	for i in range(len(L)-1):
+		lip_segment = (enh_ct <= L[i]) | (enh_ct > L[i+1])
+		lip_segment = binary_closing(binary_opening(lip_segment, B3))
+
 		den = np.sum([(enh_ct > L[i]) & (enh_ct <= L[i+1])])
-		if den == 0 or (exclude_small and den <= 50):
+		if den == 0 or (exclude_small and den <= 50):#(den / V <= .05 or den <= 50)):
 			lips.append(np.nan)
 		else:
 			lips.append(np.sum([(resp_ct > L[i]) & (resp_ct <= L[i+1])]) / den)
@@ -367,7 +363,7 @@ def get_vol_coverage(lesion_id, target_dir):
 
 	return ret
 
-def get_row_entry(lesion_id, target_dir):
+def get_row_entry(lesion_id, target_dir, liplvls):
 	import importlib
 	importlib.reload(masks)
 	importlib.reload(tr)
@@ -375,30 +371,12 @@ def get_row_entry(lesion_id, target_dir):
 	P = get_paths_dict(lesion_id, target_dir)
 
 	row = []
-	row += get_vol_coverage(P['ct24']['midlip'], P['ct24']['highlip'], P['ct24']['tumor'], P['ct24']['img'])
+	row += get_vol_coverage(lesion_id, target_dir)
 	
 	#ball_IV = get_avg_ball_intensity(P['ball']['ct24']['img'], ball_mask_path)
-	core_IV = get_avg_core_intensity(P['ball']['ct24']['img'], ball_mask_path, r_frac=.85)
 	#row = get_rim_coverage(row, masks.get_mask(P['ball']['mrbl']['enh'])[0] + 1, ball_mask_path, 1.5)
-	row.append(get_rim_coverage(hf.nii_load(P['ball']['ct24']['img'])[0], ball_mask_path, max(core_IV,150), r_frac=.85))
-
-	"""mask = masks.get_mask(ball_mask_path)[0]
-			
-				img = hf.nii_load(ball_mribl_path)[0]
-				img = img*mask/mask.max()
-				img -= img[mask > 0].min()
-				img = hf.crop_nonzero(img)[0]
-				img = (img*255/img.max()).astype('uint8')
-				row = get_texture_feats(row, img)
-			
-				img = hf.nii_load(P['ball']['ct24']['img'])[0]
-				img = img*mask/mask.max()
-				img = tr.apply_window(img, limits=[0,300])
-				img = hf.crop_nonzero(img)[0]
-				img = (img*255/img.max()).astype('uint8')
-				row = get_texture_feats(row, img)"""
-
-	row += get_peripheral_coverage(P['ball']['ct24']['img'], ball_mask_path)
+	row.append(get_rim_coverage(lesion_id, target_dir, liplvls[1], r_frac=.85))
+	row += get_peripheral_coverage(lesion_id, target_dir, liplvls[1:3], .15)
 
 	return row
 
@@ -417,30 +395,6 @@ def get_actual_order(category, df, order):
 ### Features
 ###########################
 
-"""def get_rim_coverage(row, img, ball_mask_path, threshold):
-	IVs = calc_intensity_shells_angles(img, ball_mask_path)
-	IVs[IVs==0] = np.nan
-
-	samples = fibonacci_sphere(3000, True, randomize=True)
-	samples = np.round(samples).astype(int)
-	s0 = samples[:,0]
-	s1 = samples[:,1]
-	#for i in range(IVs.shape[-1]):
-	#    print(np.nanmean(IVs[s0,s1,i]))
-
-	rim_percent = 0
-	for i in range(5):
-		num,den=0,0
-		for j in range(len(s0)):
-			if not np.isnan(IVs[s0[j],s1[j],i]):
-				den += 1
-				if IVs[s0[j],s1[j],i] > threshold:
-					num += 1
-		rim_percent = max([rim_percent, num/den])
-	row.append(rim_percent)
-
-	return row"""
-
 def get_texture_feats(row, img):
 	feats = mah.haralick(img, distance=2)
 	contrast = feats[:,1].mean()
@@ -451,38 +405,29 @@ def get_texture_feats(row, img):
 	
 	return row
 
-def get_rim_coverage(img, ball_mask_path, threshold=100, r_frac=.8):
+def get_rim_coverage(lesion_id, target_dir, min_threshold=100, r_frac=.85):
 	importlib.reload(hf)
-	M = masks.get_mask(ball_mask_path)[0]
-	nonzeros = np.argwhere(M)
-	
-	R = (nonzeros[:,0].max() - nonzeros[:,0].min()) / 2
-	M = M/M.max() - hf.zeropad(ball(int(R*r_frac)), img.shape)
+	P = get_paths_dict(lesion_id, target_dir)
 
-	img = img.astype(float)*M - threshold
+	if not exists(P['ball']['ct24']['img']):
+		return np.nan
+
+	img, dims = hf.nii_load(P['ball']['ct24']['img'])
+	M, _ = masks.get_mask(P['ball']['mask'])
+	nonzeros = np.argwhere(M)
+	R = (nonzeros[:,0].max() - nonzeros[:,0].min()) / 2
+
+	core_M = hf.zeropad(ball(int(R*r_frac)), img.shape)
+	core_I = np.sum(img[core_M != 0]) / core_M.sum()
+	std_I = np.std(img[M != 0])
+
+	threshold = max(min_threshold, core_I)
+	
+	M = M/M.max() - hf.zeropad(ball(int(R*r_frac)), img.shape)
+	img = np.ceil((img*M - threshold) / std_I)
 	img[img < 0] = 0
 
 	return img.sum() / M.sum() 
-	"""for x in range(ball.shape[0]):
-					for y in range(ball.shape[1]):
-						for z in range(ball.shape[2]):
-							if img[x,y,z] <= 0:
-								continue
-			
-							X = m-.5-x
-							Y = m-.5-y
-							Z = m-.5-z
-							r = (X*X+Y*Y+Z*Z)**.5
-			
-							if r < R*r_frac or r > R:
-								img[x,y,z] = 0
-			
-							#if img[1][x,y,z] != 0:
-							#	if r < R*r_frac or r > R*.9:
-							#		img[1][x,y,z] = 0"""
-
-	#return (img > threshold).sum() / (img > 0).sum() 
-	#row.append(max( [(img[i] > threshold).sum() / (img[i] > 0).sum() for i in range(2)] ))
 
 def get_peripheral_coverage(lesion_id, target_dir, thresholds=[100,150], dR=.15):
 	P = get_paths_dict(lesion_id, target_dir)
@@ -614,37 +559,6 @@ def fibonacci_sphere(samples=1, spherical_coords=False, randomize=False):
 			points.append([x,y,z])
 
 	return np.array(points)
-
-def get_avg_core_intensity(reg_img_path, ball_mask_path, r_frac=.8):
-	img, dims = hf.nii_load(reg_img_path)
-
-	M, _ = masks.get_mask(ball_mask_path)
-	M = M/M.max()
-	nonzeros = np.argwhere(M)
-	R = (nonzeros[:,0].max() - nonzeros[:,0].min()) / 2
-
-	M = hf.zeropad(ball(int(R*r_frac)), img.shape)
-	img[M == 0] = np.nan
-	return np.nansum(img) / M.sum()
-
-
-	m = ball.shape[0]//2
-	
-	for x in range(ball.shape[0]):
-		for y in range(ball.shape[1]):
-			for z in range(ball.shape[2]):
-					
-				X = m-.5-x
-				Y = m-.5-y
-				Z = m-.5-z
-				r = (X*X+Y*Y+Z*Z)**.5
-				if r > R*r_frac:
-					ball[x,y,z] = 0
-					
-	img[ball == 0] = np.nan
-	V = ball.sum()
-	I = np.nansum(img)
-	return I/V
 
 def get_avg_ball_intensity(reg_img_path, ball_mask_path):
 	img, dims = hf.nii_load(reg_img_path)
@@ -858,11 +772,11 @@ def seg_liver_mri(mri_img, save_path, mri_dims, model, tumor_mask_path=None):
 	
 	x = x[crops[0]:crops[1], crops[2]:crops[3], crops[4]:crops[5]]
 	scale_shape = x.shape
-	x, _ = tr.rescale_img(x, C.dims)
+	x = tr.rescale_img(x, C.dims)
 	
 	y = model.predict(np.expand_dims(x,0))[0]
 	liver_mask = (y[:,:,:,1] > y[:,:,:,0]).astype(float)
-	liver_mask, _ = tr.rescale_img(liver_mask, scale_shape)#orig_shape)
+	liver_mask = tr.rescale_img(liver_mask, scale_shape)#orig_shape)
 	liver_mask = np.pad(liver_mask, ((crops[0], orig_shape[0]-crops[1]),
 									 (crops[2], orig_shape[1]-crops[3]),
 									 (crops[4], orig_shape[2]-crops[5])), 'constant')
@@ -902,12 +816,12 @@ def seg_liver_ct(ct_path, save_path, model, tumor_mask_path=None):
 	
 	x = x[crops[0]:crops[1], crops[2]:crops[3], crops[4]:crops[5]]
 	scale_shape = x.shape
-	x, _ = tr.rescale_img(x, C.dims)
+	x = tr.rescale_img(x, C.dims)
 	
 	y = model.predict(np.expand_dims(x,0))[0]
 	liver_mask = (y[:,:,:,1] > y[:,:,:,0]).astype(float)
 	liver_mask[x < 30] = 0
-	liver_mask, _ = tr.rescale_img(liver_mask, scale_shape)
+	liver_mask = tr.rescale_img(liver_mask, scale_shape)
 	liver_mask = np.pad(liver_mask, ((crops[0], orig_shape[0]-crops[1]),
 									 (crops[2], orig_shape[1]-crops[3]),
 									 (crops[4], orig_shape[2]-crops[5])), 'constant')
