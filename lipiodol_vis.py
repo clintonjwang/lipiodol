@@ -262,7 +262,7 @@ def check_rim(lesion_id, df, modality):
 	elif modality == "ct24":
 		return check_feature(lesion_id, df[df["lipcoverage_vol"] < .8], "rim_lipiodol",
 			legend_names=["Rim deposition", "Non-rim, heterogeneous\ndeposition"],
-			criteria_pos=lambda x: x > 20, restriction="Focal")
+			criteria_pos=lambda x: x > 2, restriction="Focal")
 
 def check_column(lesion_id, df, column, mapping, restriction=None):
 	if np.isnan(df.loc[lesion_id, column]):

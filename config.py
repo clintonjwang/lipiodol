@@ -13,6 +13,6 @@ class Config:
 		self.base_dir = "C:\\Users\\Clinton\\Documents\\Lipiodol"
 		self.ranking_dir = "Z:\\Sophie\\Rankings"
 		self.model_dir = "D:\\Lipiodol\\models"
-		self.data_xls_path = "D:\\Lipiodol\\Results\\results.xlsx"
+		self.data_xls_path = r"C:\Users\Clinton\Box\FOR CLINTON BOX FOLDER\Generated Data.xlsx"
 		self.fig_dir = r"C:\Users\Clinton\Box\FOR CLINTON BOX FOLDER\Figure drafts\Figure images"
 		self.train_data_dir = "D:\\Lipiodol\\npy_data"
