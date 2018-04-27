@@ -105,12 +105,13 @@ def lip_to_response(lesion_id, target_dir, liplvls, exclude_small=True):
 
 	if exists(P['ct24Tx']['mr30']['enh'] + ".off"):
 		mr30d_enh = masks.get_mask(P['ct24Tx']['mr30']['enh'])[0]
-		mr30d_nec = M * (1 - mr30d_enh/mr30d_enh.max())
+		mr30d_enh = mr30d_enh/mr30d_enh.max()
+		mr30d_nec = M * (1 - mr30d_enh)
 	else:
 		mr30d_enh = np.zeros(M.shape)
 		mr30d_nec = M
 
-	ct24 = hf.nii_load(P['ct24Tx']['crop']['img'])[0]
+	ct24,D = hf.nii_load(P['ct24Tx']['crop']['img'])
 	ct24[ct24 < 0] = 1
 
 	enh_ct = ct24 * mrbl_enh
@@ -137,7 +138,7 @@ def lip_to_response(lesion_id, target_dir, liplvls, exclude_small=True):
 		else:
 			lips.append(np.sum(mr30d_nec*lip_segment / den))
 
-	return lips + [(mrbl_enh*mr30d_nec).sum()/mrbl_enh.sum()]
+	return lips + [mr30d_enh.sum()/mrbl_enh.sum()-1] #(mrbl_enh*mr30d_nec).sum()/mrbl_enh.sum() #np.product(D)*(mr30d_enh.sum()-mrbl_enh.sum())
 
 def vascular_to_deposition_ball(lesion_id, target_dir, liplvls, exclude_small=True):
 	P = lm.get_paths_dict(lesion_id, target_dir)
@@ -243,7 +244,6 @@ def get_row_entry(lesion_id, target_dir, liplvls):
 	return row
 
 def get_actual_order(category, df, order):
-	importlib.reload(lvis)
 	if order is None:
 		return None
 	

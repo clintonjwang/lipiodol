@@ -7,6 +7,7 @@ import niftiutils.masks as masks
 import niftiutils.helper_fxns as hf
 import niftiutils.transforms as tr
 import niftiutils.registration as reg
+import niftiutils.visualization as vis
 import numpy as np
 import random
 import math
@@ -139,9 +140,9 @@ def draw_mrseq_with_mask(lesion_id, target_dir, save_dir, mod='mrbl'):
 	tumor_mask = masks.get_mask(P[mod]['tumor'], D, I.shape)[0]
 	tumor_mask = hf.crop_nonzero(tumor_mask, C)[0]
 
-	sub_w_mask = hf.create_contour_img(sub, [tumor_mask, mask])
+	sub_w_mask = vis.create_contour_img(sub, [tumor_mask, mask])
 
-	hf.display_sequence([pre[...,sl], art[...,sl], equ[...,sl], sub[...,sl],
+	vis.display_sequence([pre[...,sl], art[...,sl], equ[...,sl], sub[...,sl],
 		sub_w_mask, mask[...,sl]], 2, 3,
 		join(save_dir, "%s_%s.png" % (lesion_id, mod)))
 
@@ -172,8 +173,8 @@ def draw_reg_seq(lesion_id, target_dir, save_dir):
 
 	mask_overlay = np.stack([bl_M[...,sl], np.zeros(bl_M.shape[:2]), fu_M[...,sl]], -1)
 
-	bl_Tx_cont = hf.create_contour_img(bl_Tx[...,sl], [tumor_mask[...,sl], bl_M[...,sl]], colors=[(0,255,0), (255,0,0)])
-	fu_Tx_cont = hf.create_contour_img(fu_Tx[...,sl], [tumor_mask[...,sl], fu_M[...,sl]], colors=[(0,255,0), (0,0,255)])
+	bl_Tx_cont = vis.create_contour_img(bl_Tx[...,sl], [tumor_mask[...,sl], bl_M[...,sl]], colors=[(0,255,0), (255,0,0)])
+	fu_Tx_cont = vis.create_contour_img(fu_Tx[...,sl], [tumor_mask[...,sl], fu_M[...,sl]], colors=[(0,255,0), (0,0,255)])
 
 	#if exists(P['ct24Tx']['crop']['midlip'] + ".off"):
 	#	ct_M = masks.get_mask(P['ct24Tx']['crop']['midlip'], D, bl_Tx.shape)[0]
@@ -181,7 +182,7 @@ def draw_reg_seq(lesion_id, target_dir, save_dir):
 	#	ct_M = np.zeros(bl_Tx.shape)
 	#mask_overlay2 = np.stack([bl_M[...,sl]*fu_M[...,sl]/fu_M.max(), ct_M[...,sl], bl_M[...,sl]*(1-fu_M[...,sl]/fu_M.max())], -1)
 
-	hf.display_sequence([bl_img, fu_img, ct_img,#bl_img[...,bl_img.shape[-1]//2], fu_img[...,fu_img.shape[-1]//2], #ct_img[...,ct_img.shape[-1]//2]
+	vis.display_sequence([bl_img, fu_img, ct_img,#bl_img[...,bl_img.shape[-1]//2], fu_img[...,fu_img.shape[-1]//2], #ct_img[...,ct_img.shape[-1]//2]
 		bl_Tx_cont, #np.transpose(ct_Tx_cont, (1,0,2)), 
 		fu_Tx_cont, mask_overlay],#, mask_overlay2],
 		2, 3, join(save_dir, "%s.png" % lesion_id))
