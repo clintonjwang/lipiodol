@@ -25,6 +25,7 @@ from skimage.morphology import ball, label
 ###########################
 
 def write_ranked_imgs(df, target_dir, column, img_type, root_dir, overwrite=False, mask_type=None, window=None):
+	importlib.reload(masks)
 	if not exists(root_dir):
 		os.makedirs(root_dir)
 		
@@ -42,10 +43,6 @@ def write_ranked_imgs(df, target_dir, column, img_type, root_dir, overwrite=Fals
 			if window=="ct":
 				img = tr.apply_window(img)
 			hf.create_dicom(img, save_dir, overwrite=overwrite)
-
-def check_qEASL_threshold(lesion_id, target_dir):
-	P = lm.get_paths_dict(lesion_id, target_dir)
-	P['mrbl']
 
 ###########################
 ### Draw tumor pngs
@@ -198,7 +195,7 @@ def check_feature(lesion_id, df, column, legend_names, criteria_pos, criteria_ne
 		criteria_neg = lambda x: ~criteria_pos(x) & ~np.isnan(x)
 
 	if criteria_pos(df.loc[lesion_id, column]):
-		if restriction=="Focal":
+		if restriction=="WD":
 			cnt = (criteria_pos(df[column]) & (df["0=well delineated, 1=infiltrative"]==0)).sum()
 		elif restriction=="Infiltrative":
 			cnt = (criteria_pos(df[column]) & (df["0=well delineated, 1=infiltrative"]==1)).sum()
@@ -207,7 +204,7 @@ def check_feature(lesion_id, df, column, legend_names, criteria_pos, criteria_ne
 		return legend_names[0] + " (n=%d)" % cnt
 	
 	elif criteria_neg(df.loc[lesion_id, column]):
-		if restriction=="Focal":
+		if restriction=="WD":
 			cnt = (criteria_neg(df[column]) & (df["0=well delineated, 1=infiltrative"]==0)).sum()
 		elif restriction=="Infiltrative":
 			cnt = (criteria_neg(df[column]) & (df["0=well delineated, 1=infiltrative"]==1)).sum()
@@ -219,11 +216,11 @@ def check_feature(lesion_id, df, column, legend_names, criteria_pos, criteria_ne
 
 def get_df_entry(lesion_id, master_df, modality):
 	if modality == "mrbl":
-		return [check_column(lesion_id, master_df, "0=well delineated, 1=infiltrative", {0: "Focal", 1: "Infiltrative"}),
+		return [check_column(lesion_id, master_df, "0=well delineated, 1=infiltrative", {0: "Well-delineated", 1: "Infiltrative"}),
 				check_column(lesion_id, master_df, "HCC(0), ICC(1), other(2)", {0: "HCCs", 1: "ICCs", 2: "Metastases"}),
 				check_column(lesion_id, master_df, "selective=0", {0: "Selective TACE", 1: "Lobar TACE"})]
 	elif modality == "ct24":
-		return [check_column(lesion_id, master_df, "0=well delineated, 1=infiltrative", {0: "Focal", 1: "Infiltrative"}),
+		return [check_column(lesion_id, master_df, "0=well delineated, 1=infiltrative", {0: "Well-delineated", 1: "Infiltrative"}),
 				check_column(lesion_id, master_df, "HCC(0), ICC(1), other(2)", {0: "HCCs", 1: "ICCs", 2: "Metastases"}),
 				check_column(lesion_id, master_df, "selective=0", {0: "Selective TACE", 1: "Lobar TACE"}),
 				check_homogeneous(lesion_id, master_df, modality),
@@ -234,12 +231,12 @@ def check_homogeneous(lesion_id, df, modality):
 	if modality == "mrbl":
 		return check_feature(lesion_id, df, "enhancing_vol",
 			legend_names=["Homogeneous\nenhancement", "Heterogeneous\nenhancement"],
-			criteria_pos=lambda x: x > .75, restriction="Focal")
+			criteria_pos=lambda x: x > .75, restriction="Well-delineated")
 
 	elif modality == "ct24":
 		return check_feature(lesion_id, df, "lipcoverage_vol",
 			legend_names=["Homogeneous\ndeposition", "Heterogeneous\ndeposition"],
-			criteria_pos=lambda x: x >= .8, restriction="Focal")
+			criteria_pos=lambda x: x >= .8, restriction="Well-delineated")
 
 def check_sparse(lesion_id, df, modality, restriction=None):
 	if modality == "mrbl":
@@ -258,18 +255,18 @@ def check_rim(lesion_id, df, modality):
 	if modality == "mrbl":
 		return check_feature(lesion_id, df, "rim_enhancing",
 			legend_names=["Rim enhancement", "Non-rim, heterogeneous\nenhancement"],
-			criteria_pos=lambda x: x > .5, restriction="Focal")
+			criteria_pos=lambda x: x > .5, restriction="Well-delineated")
 
 	elif modality == "ct24":
 		return check_feature(lesion_id, df[df["lipcoverage_vol"] < .8], "rim_lipiodol",
 			legend_names=["Rim deposition", "Non-rim, heterogeneous\ndeposition"],
-			criteria_pos=lambda x: x > 2, restriction="Focal")
+			criteria_pos=lambda x: x > .5, restriction="Well-delineated")
 
 def check_column(lesion_id, df, column, mapping, restriction=None):
 	if np.isnan(df.loc[lesion_id, column]):
 		return np.nan
 	else:
-		if restriction=="Focal":
+		if restriction=="WD":
 			cnt = ((df[column]==df.loc[lesion_id, column]) & \
 				   (df["0=well delineated, 1=infiltrative"]==0)).sum()
 		elif restriction=="Infiltrative":
