@@ -21,6 +21,9 @@ from os.path import *
 from scipy.ndimage.morphology import binary_closing, binary_opening, binary_dilation, binary_erosion
 from skimage.morphology import ball, label
 
+importlib.reload(masks)
+importlib.reload(tr)
+
 ###########################
 ### Assess correlations
 ###########################
@@ -116,7 +119,6 @@ def lip_to_response(lesion_id, target_dir, liplvls, exclude_small=True):
 	ct24,D = hf.nii_load(P['ct24Tx']['crop']['img'])
 	ct24[ct24 < 0] = 1
 
-
 	enh_ct = ct24 * mrbl_enh
 	#V = np.sum(enh_ct != 0)
 	#resp = mrbl_enh * mr30d_nec
@@ -206,10 +208,6 @@ def get_vol_coverage(lesion_id, target_dir, L):
 	return [(img[tumor] > T).sum()/tumor.sum() for T in L[-2:]]
 
 def get_row_entry(lesion_id, target_dir, liplvls):
-	import importlib
-	importlib.reload(masks)
-	importlib.reload(tr)
-
 	row = []
 	row += get_vol_coverage(lesion_id, target_dir, liplvls)
 	
@@ -271,8 +269,7 @@ def get_rim_coverage(lesion_id, target_dir, min_threshold, r_frac=.15):
 
 	return (img[rimM > 0] > T).sum() / rimM.sum()
 
-
-	img, dims = hf.nii_load(P['ball']['ct24']['img'])
+	"""img, dims = hf.nii_load(P['ball']['ct24']['img'])
 	M = masks.get_mask(P['ball']['mask'])
 	M = M/M.max()
 	nonzeros = np.argwhere(M)
@@ -284,14 +281,14 @@ def get_rim_coverage(lesion_id, target_dir, min_threshold, r_frac=.15):
 
 	threshold = max(min_threshold, core_I)
 	img[img > 400] = 400
-	
+
 	M = M - core_M
 	img = (img*M - threshold)/32#np.ceil((img*M - threshold) / std_I)
 	img[img < 0] = 0
 	#return img
 	#img[img > 5] = 5
 
-	return img.sum() / M.sum() 
+	return img.sum() / M.sum() """
 
 def get_peripheral_coverage(lesion_id, target_dir, thresholds, R=35):
 	P = lm.get_paths_dict(lesion_id, target_dir)
@@ -308,7 +305,7 @@ def get_peripheral_coverage(lesion_id, target_dir, thresholds, R=35):
 
 	return [(img*M > T).sum() / M.sum() for T in thresholds]
 
-def get_qEASL(lesion_id, target_dir):
+"""def get_qEASL(lesion_id, target_dir):
 	P = lm.get_paths_dict(lesion_id, target_dir)
 
 	if not exists(P['mrbl']['enh'] + ".off"):
@@ -320,6 +317,7 @@ def get_qEASL(lesion_id, target_dir):
 	A30, D30 = hf.nii_load(P['mr30']['art'])
 	return (masks.get_mask(P['mr30']['enh'], D30, A30.shape).sum() * np.product(D30)) / \
 			(masks.get_mask(P['mrbl']['enh'], Dbl, Abl.shape).sum() * np.product(Dbl)) - 1
+"""
 
 def validate_patterns(pattern_df):
 	rim_pos = ["BM-07", "BM-19", "BM-24", "BM-28A", "BM-37", "PK-24", "BM-28B"]
@@ -347,21 +345,26 @@ def get_RECIST(P):
 	max_sl = areas.index(max(areas))
 	return lmet.estimate_RECIST(tumor_M[...,max_sl]) * D[0]
 
-def get_counts(df):
+def get_n_patterns(df):
+	WD_df = df[df['0=well delineated, 1=infiltrative'] == 0]
 	I_df = df[df['0=well delineated, 1=infiltrative'] == 1]
-	S_df = df[df['lipcoverage_vol'] < .2]
-	nS_df = df[(df['lipcoverage_vol'] >= .2) & (df['lipcoverage_vol'] <= .8)]
-	H_df = df[df['lipcoverage_vol'] > .8]
+
+	I_R_df = I_df[I_df['rim_lipiodol'] >= .5]
+	I_H_df = I_df[I_df['lipcoverage_vol'] > .8]
+	I_S_df = I_df[I_df['lipcoverage_vol'] < .2]
+
+	S_df = WD_df[WD_df['lipcoverage_vol'] < .2]
+	nS_df = WD_df[(WD_df['lipcoverage_vol'] >= .2) & (WD_df['lipcoverage_vol'] <= .8)]
+	H_df = WD_df[WD_df['lipcoverage_vol'] > .8]
 	RS_df = S_df[S_df['rim_lipiodol'] >= .5]
 	nRS_df = S_df[S_df['rim_lipiodol'] < .5]
 	RnS_df = nS_df[nS_df['rim_lipiodol'] >= .5]
 	nRnS_df = nS_df[nS_df['rim_lipiodol'] < .5]
 
-	for x in ["RS_df", "nRS_df", "RnS_df", "nRnS_df", "H_df"]:
+	for x in ["I_df", "I_R_df", "I_H_df", "I_S_df", "H_df", "RS_df", "nRS_df", "RnS_df", "nRnS_df"]:
 		print(x, len(eval(x)))
 
 def get_best_T_lip(lesion_id, target_dir, T_lip=150):
-	importlib.reload(lm)
 	P = lm.get_paths_dict(lesion_id, target_dir)
 	ct = hf.nii_load(P['ct24Tx']['crop']['img'])[0]
 	M = masks.get_mask(P['ct24Tx']['crop']['tumor'])

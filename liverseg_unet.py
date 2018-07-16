@@ -4,137 +4,46 @@ Author: David G Ellis (https://github.com/ellisdg/3DUnetCNN)
 """
 
 import keras.backend as K
-from keras_contrib.layers.normalization import InstanceNormalization
-from keras.layers import Input, Dense, Concatenate, Flatten, Dropout, Lambda
-from keras.layers import SimpleRNN, Conv2D, MaxPooling2D, ZeroPadding3D, Activation, ELU, TimeDistributed, Permute, Reshape
-from keras.layers.normalization import BatchNormalization
 import keras.layers as layers
 from keras.models import Model
 from keras.callbacks import EarlyStopping
 from keras.optimizers import Adam
 from keras.utils import np_utils
 
-import argparse
 import copy
 import config
-import niftiutils.cnn_components as cnnc
+import importlib
+import niftiutils.deep_learning.cnn_components as cnnc
 import niftiutils.helper_fxns as hf
 import niftiutils.transforms as tr
 import math
-from math import log, ceil
 import numpy as np
 import operator
 import os
 from os.path import *
 import pandas as pd
 import random
-from scipy.misc import imsave
-from skimage.transform import rescale
-from niftiutils.metrics import dice_coefficient_loss, get_label_dice_coefficient_function, dice_coefficient
-import time
+
+importlib.reload(cnnc)
+C = config.Config()
 
 def build_unet(optimizer='adam', depth=4, base_f=8, nb_segs=2, dropout=.1, lr=.001):
 	"""Main class for setting up a CNN. Returns the compiled model."""
-	import importlib
-	importlib.reload(cnnc)
-	importlib.reload(config)
-
-	C = config.Config()
 	levels = []
 
-	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2]))
-	current_layer = Reshape((C.dims[0], C.dims[1], C.dims[2], 1))(img)
-	#current_layer = Reshape((1, C.dims[0], C.dims[1], C.dims[2]))(img)
-	
-	for layer_depth in range(depth):
-		layer1 = cnnc.conv_block(current_layer, base_f*2**layer_depth, strides=1)
-		dropl = layers.Dropout(dropout)(layer1)
-		layer2 = cnnc.conv_block(dropl, base_f*2**(layer_depth+1))
-
-		if layer_depth < depth - 1:
-			current_layer = layers.MaxPooling3D((2,2,2))(layer2)
-			levels.append([layer1, layer2, current_layer])
-		else:
-			current_layer = layer2
-			levels.append([layer1, layer2])
-			
-	for layer_depth in range(depth-2, -1, -1):
-		up_convolution = cnnc.up_conv_block(pool_size=(2,2,2), deconvolution=False,
-											n_filters=current_layer._keras_shape[1])(current_layer)
-		concat = layers.Concatenate(axis=-1)([up_convolution, levels[layer_depth][1]])
-		current_layer = cnnc.conv_block(concat, levels[layer_depth][1]._keras_shape[-1]//2)
-		current_layer = layers.Dropout(dropout)(current_layer)
-		current_layer = cnnc.conv_block(current_layer, levels[layer_depth][1]._keras_shape[-1]//2)
-
-	x = layers.Conv3D(nb_segs, (1,1,1), activation='softmax')(current_layer)
-	#x = layers.Softmax(-1)(x)
-	#x = layers.Permute((4,1,2,3))(x)
-	model = Model(img, x)
+	img = Input(shape=C.dims)
+	x = Reshape((*C.dims, 1))(img)
+	_, end_layer = cnnc.UNet(x)
+	end_layer = layers.Conv3D(nb_segs, (1,1,1), activation='softmax')(end_layer)
+	model = Model(img, end_layer)
 
 	model.compile(optimizer=Adam(lr=lr), loss='binary_crossentropy', metrics=['accuracy'])
 	return model
-
-def build_unet_multich(optimizer='adam', depth=3, base_f=32, dropout=.1, lr=.001):
-	"""Main class for setting up a CNN. Returns the compiled model."""
-	import importlib
-	importlib.reload(cnnc)
-	importlib.reload(config)
-
-	C = config.Config()
-	levels = []
-
-	img = Input(shape=(*C.small_dims, 4))
-	current_layer = img
-	#current_layer = Reshape((C.dims[0], C.dims[1], C.dims[2], 1))(img)
-	#current_layer = Reshape((1, C.dims[0], C.dims[1], C.dims[2]))(img)
-	
-	for layer_depth in range(depth):
-		layer1 = cnnc.conv_block(current_layer, base_f*2**layer_depth, strides=1)
-		dropl = layers.Dropout(dropout)(layer1)
-		layer2 = cnnc.conv_block(dropl, base_f*2**(layer_depth+1))
-
-		if layer_depth < depth - 1:
-			current_layer = layers.MaxPooling3D((2,2,2))(layer2)
-			levels.append([layer1, layer2, current_layer])
-		else:
-			current_layer = layer2
-			levels.append([layer1, layer2])
-			
-	for layer_depth in range(depth-2, -1, -1):
-		up_convolution = cnnc.up_conv_block(pool_size=(2,2,2), deconvolution=False,
-											n_filters=current_layer._keras_shape[1])(current_layer)
-		concat = layers.Concatenate(axis=-1)([up_convolution, levels[layer_depth][1]])
-		current_layer = cnnc.conv_block(concat, levels[layer_depth][1]._keras_shape[-1]//2)
-		current_layer = layers.Dropout(dropout)(current_layer)
-		current_layer = cnnc.conv_block(current_layer, levels[layer_depth][1]._keras_shape[-1]//2)
-
-	x = layers.Conv3D(2, (1,1,1), activation='softmax')(current_layer)
-	#x = layers.Softmax(-1)(x)
-	#x = layers.Permute((4,1,2,3))(x)
-	model = Model(img, x)
-
-	model.compile(optimizer=Adam(lr=lr), loss='categorical_crossentropy', metrics=['accuracy'])
-	return model
-
-def compute_level_output_shape(n_filters, depth, pool_size, image_shape):
-	"""
-	Each level has a particular output shape based on the number of filters used in that level and the depth or number 
-	of max pooling operations that have been done on the data at that point.
-	:param image_shape: shape of the 3d image.
-	:param pool_size: the pool_size parameter used in the max pooling operation.
-	:param n_filters: Number of filters used by the last node in a given level.
-	:param depth: The number of levels down in the U-shaped model a given node is.
-	:return: 5D vector of the shape of the output node 
-	"""
-	output_image_shape = np.asarray(np.divide(image_shape, np.power(pool_size, depth)), dtype=np.int32).tolist()
-	return tuple([None, n_filters] + output_image_shape)
 
 def get_cnn_data(n=4):
 	"""Subroutine to run CNN
 	n is number of real samples, n_art is number of artificial samples
 	Z_test is filenames"""
-
-	C = config.Config()
 
 	nb_classes = len(C.classes_to_include)
 	orig_data_dict, num_samples = _collect_unaug_data()
@@ -161,13 +70,12 @@ def get_cnn_data(n=4):
 
 	return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig], [Z_test, Z_train_orig]
 
+
 ####################################
 ### Training Submodules
 ####################################
 
 def train_gen_lip(n=5):
-	C = config.Config()
-
 	lesion_ids = [z[:z.find("_lip")] for z in os.listdir(C.train_data_dir) if z.endswith("_lipdensity.npy")]
 	while True:
 		X_train = np.empty((n,*C.small_dims,4))
@@ -200,8 +108,6 @@ def train_gen_lip(n=5):
 		yield X_train, Y_train
 
 def train_gen_mri(n=1):
-	C = config.Config()
-
 	lesion_ids = [z[:z.find("_mri")] for z in os.listdir(C.train_data_dir) if z.endswith("_mri_art.npy")]
 	while True:
 		lesion_id = random.choice(lesion_ids)
@@ -224,8 +130,6 @@ def train_gen_mri(n=1):
 		yield np.expand_dims(x,0), np.expand_dims(y,0)
 
 def train_gen_ct(n=1):
-	C = config.Config()
-
 	lesion_ids = [z[:z.find("_")] for z in os.listdir(C.train_data_dir) if z.endswith("_ct.npy")]
 	while True:
 		lesion_id = random.choice(lesion_ids)
@@ -280,8 +184,6 @@ def _separate_phases(X, non_imaging_inputs=False):
 
 def _collect_unaug_data():
 	"""Return dictionary pointing to X (img data) and Z (filenames) and dictionary storing number of samples of each class."""
-
-	C = config.Config()
 	orig_data_dict = {}
 	num_samples = {}
 	voi_df = drm.get_voi_dfs()[0]
@@ -327,11 +229,3 @@ def _collect_unaug_data():
 		num_samples[cls] = index + 1
 		
 	return orig_data_dict, num_samples
-
-if __name__ == '__main__':
-	parser = argparse.ArgumentParser(description='Convert DICOMs to npy files and transfer voi coordinates from excel to csv.')
-	parser.add_argument('-m', '--max_runs', type=int, help='max number of runs to allow')
-	#parser.add_argument('-o', '--overwrite', action='store_true', help='overwrite')
-	args = parser.parse_args()
-
-	run_fixed_hyperparams(max_runs=args.max_runs)

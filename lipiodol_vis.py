@@ -50,7 +50,7 @@ def write_ranked_imgs(df, target_dir, column, img_type, root_dir, overwrite=Fals
 
 def draw_unreg_fig(img_path, mask_path, save_path, color, modality, midslice=True):
 	img,D = hf.nii_load(img_path)
-	mask,_ = masks.get_mask(mask_path, D, img.shape)
+	mask = masks.get_mask(mask_path, D, img.shape)
 	nz = np.argwhere(mask)
 
 	pad = [img.shape[0]//5, img.shape[1]//5]
@@ -83,7 +83,7 @@ def draw_unreg_fig(img_path, mask_path, save_path, color, modality, midslice=Tru
 
 def draw_reg_fig(img_path, mask_path, save_path, color, modality):
 	img,_ = hf.nii_load(img)
-	mask,_ = masks.get_mask(mask_path)
+	mask = masks.get_mask(mask_path)
 	img = np.transpose(img, (1,0,2))
 	mask = np.transpose(mask, (1,0,2))
 	
@@ -129,12 +129,12 @@ def draw_mrseq_with_mask(lesion_id, target_dir, save_dir, mod='mrbl'):
 
 	I,D = hf.nii_load(P[mod]['art'])
 	if exists(P[mod]['enh'] + ".off"):
-		mask = masks.get_mask(P[mod]['enh'], D, I.shape)[0]
+		mask = masks.get_mask(P[mod]['enh'], D, I.shape)
 		mask = hf.crop_nonzero(mask, C)[0]
 	else:
 		mask = np.zeros(art.shape)
 
-	tumor_mask = masks.get_mask(P[mod]['tumor'], D, I.shape)[0]
+	tumor_mask = masks.get_mask(P[mod]['tumor'], D, I.shape)
 	tumor_mask = hf.crop_nonzero(tumor_mask, C)[0]
 
 	sub_w_mask = vis.create_contour_img(sub, [tumor_mask, mask])
@@ -155,16 +155,16 @@ def draw_reg_seq(lesion_id, target_dir, save_dir):
 	bl_Tx,D = hf.nii_load(P['ct24Tx']['mrbl']['art'])
 	fu_Tx = hf.nii_load(P['ct24Tx']['mr30']['art'])[0]
 
-	tumor_mask = masks.get_mask(P['ct24Tx']['crop']['tumor'])[0]
+	tumor_mask = masks.get_mask(P['ct24Tx']['crop']['tumor'])
 	sl = bl_Tx.shape[-1]//2
 
 	if exists(P['ct24Tx']['mrbl']['enh'] + ".off"):
-		bl_M = masks.get_mask(P['ct24Tx']['mrbl']['enh'], D, bl_Tx.shape)[0]
+		bl_M = masks.get_mask(P['ct24Tx']['mrbl']['enh'], D, bl_Tx.shape)
 	else:
 		bl_M = np.zeros(bl_Tx.shape)
 
 	if exists(P['ct24Tx']['mr30']['enh'] + ".off"):
-		fu_M = masks.get_mask(P['ct24Tx']['mr30']['enh'], D, bl_Tx.shape)[0]
+		fu_M = masks.get_mask(P['ct24Tx']['mr30']['enh'], D, bl_Tx.shape)
 	else:
 		fu_M = np.zeros(bl_Tx.shape)
 
@@ -174,7 +174,7 @@ def draw_reg_seq(lesion_id, target_dir, save_dir):
 	fu_Tx_cont = vis.create_contour_img(fu_Tx[...,sl], [tumor_mask[...,sl], fu_M[...,sl]], colors=[(0,255,0), (0,0,255)])
 
 	#if exists(P['ct24Tx']['crop']['midlip'] + ".off"):
-	#	ct_M = masks.get_mask(P['ct24Tx']['crop']['midlip'], D, bl_Tx.shape)[0]
+	#	ct_M = masks.get_mask(P['ct24Tx']['crop']['midlip'], D, bl_Tx.shape)
 	#else:
 	#	ct_M = np.zeros(bl_Tx.shape)
 	#mask_overlay2 = np.stack([bl_M[...,sl]*fu_M[...,sl]/fu_M.max(), ct_M[...,sl], bl_M[...,sl]*(1-fu_M[...,sl]/fu_M.max())], -1)
